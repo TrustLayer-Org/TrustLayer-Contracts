@@ -131,7 +131,10 @@ fn test_get_business_existing() {
         &String::from_str(&env, "Alpha Logistics"),
     );
     let business = client.get_business(&id).unwrap();
-    assert_eq!(business.company_name, String::from_str(&env, "Alpha Logistics"));
+    assert_eq!(
+        business.company_name,
+        String::from_str(&env, "Alpha Logistics")
+    );
 }
 
 #[test]
@@ -440,9 +443,18 @@ fn test_count_active_businesses() {
     let contract_id = env.register(TrustLayerContract, ());
     let client = TrustLayerContractClient::new(&env, &contract_id);
 
-    client.register_business(&String::from_str(&env, "G1"), &String::from_str(&env, "One"));
-    client.register_business(&String::from_str(&env, "G2"), &String::from_str(&env, "Two"));
-    client.register_business(&String::from_str(&env, "G3"), &String::from_str(&env, "Three"));
+    client.register_business(
+        &String::from_str(&env, "G1"),
+        &String::from_str(&env, "One"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G2"),
+        &String::from_str(&env, "Two"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G3"),
+        &String::from_str(&env, "Three"),
+    );
     assert_eq!(client.count_active_businesses(), 3);
     client.deactivate_business(&1);
     assert_eq!(client.count_active_businesses(), 2);
