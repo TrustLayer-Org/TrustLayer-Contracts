@@ -80,3 +80,12 @@ fn test_set_and_get_verification_tier() {
     client.set_verification_tier(&0, &3);
     assert_eq!(client.get_verification_tier(&0), 3);
 }
+
+#[test]
+fn test_get_verification_tier_default_zero() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.get_verification_tier(&5), 0);
+}
