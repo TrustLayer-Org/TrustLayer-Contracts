@@ -230,3 +230,20 @@ fn test_register_verified_business_also_registers() {
     let business = client.get_business(&id).unwrap();
     assert_eq!(business.wallet, String::from_str(&env, "GABC..."));
 }
+
+#[test]
+fn test_get_profile_aggregates_all_fields() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_category(&0, &Symbol::new(&env, "logistics"));
+    client.set_verification_tier(&0, &3);
+    client.deactivate_business(&0);
+
+    let profile = client.get_profile(&0);
+    assert_eq!(profile.business_id, 0);
+    assert_eq!(profile.category, Symbol::new(&env, "logistics"));
+    assert_eq!(profile.tier, 3);
+    assert_eq!(profile.active, false);
+}
