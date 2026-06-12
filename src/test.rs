@@ -354,3 +354,12 @@ fn test_is_verified_reflects_tier() {
     client.set_verification_tier(&0, &1);
     assert_eq!(client.is_verified(&0), true);
 }
+
+#[test]
+fn test_is_verified_default_false() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.is_verified(&7), false);
+}
