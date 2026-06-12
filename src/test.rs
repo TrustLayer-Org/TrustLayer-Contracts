@@ -271,3 +271,14 @@ fn test_set_category_overwrite() {
     client.set_category(&0, &Symbol::new(&env, "finance"));
     assert_eq!(client.get_category(&0), Symbol::new(&env, "finance"));
 }
+
+#[test]
+fn test_set_verification_tier_overwrite() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_verification_tier(&0, &1);
+    client.set_verification_tier(&0, &5);
+    assert_eq!(client.get_verification_tier(&0), 5);
+}
