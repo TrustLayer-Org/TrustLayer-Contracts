@@ -61,3 +61,12 @@ fn test_set_and_get_category() {
     client.set_category(&0, &Symbol::new(&env, "logistics"));
     assert_eq!(client.get_category(&0), Symbol::new(&env, "logistics"));
 }
+
+#[test]
+fn test_get_category_default_none() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.get_category(&7), Symbol::new(&env, "none"));
+}
