@@ -242,6 +242,11 @@ impl TrustLayerContract {
             .unwrap_or_else(|| Vec::new(&env));
         businesses.len()
     }
+
+    /// Report whether a business meets a required verification tier.
+    pub fn meets_tier(env: Env, business_id: u32, required: u32) -> bool {
+        Self::get_verification_tier(env, business_id) >= required
+    }
 }
 
 mod test;
