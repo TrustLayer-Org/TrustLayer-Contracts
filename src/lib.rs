@@ -268,6 +268,19 @@ impl TrustLayerContract {
         Self::set_verification_tier(env, id, tier);
         id
     }
+
+    /// Aggregate category, tier, and active status into a profile view.
+    pub fn get_profile(env: Env, business_id: u32) -> BusinessProfile {
+        let category = Self::get_category(env.clone(), business_id);
+        let tier = Self::get_verification_tier(env.clone(), business_id);
+        let active = Self::is_active(env, business_id);
+        BusinessProfile {
+            business_id,
+            category,
+            tier,
+            active,
+        }
+    }
 }
 
 mod test;
