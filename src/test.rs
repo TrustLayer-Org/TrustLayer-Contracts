@@ -282,3 +282,15 @@ fn test_set_verification_tier_overwrite() {
     client.set_verification_tier(&0, &5);
     assert_eq!(client.get_verification_tier(&0), 5);
 }
+
+#[test]
+fn test_category_isolation_between_businesses() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_category(&0, &Symbol::new(&env, "retail"));
+    client.set_category(&1, &Symbol::new(&env, "logistics"));
+    assert_eq!(client.get_category(&0), Symbol::new(&env, "retail"));
+    assert_eq!(client.get_category(&1), Symbol::new(&env, "logistics"));
+}
