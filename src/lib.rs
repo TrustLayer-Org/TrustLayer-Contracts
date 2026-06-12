@@ -205,6 +205,17 @@ impl TrustLayerContract {
         active.set(business_id, true);
         env.storage().persistent().set(&key, &active);
     }
+
+    /// Report whether a business is active, defaulting to true.
+    pub fn is_active(env: Env, business_id: u32) -> bool {
+        let key = Symbol::new(&env, "active");
+        let active: Map<u32, bool> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        active.get(business_id).unwrap_or(true)
+    }
 }
 
 mod test;
