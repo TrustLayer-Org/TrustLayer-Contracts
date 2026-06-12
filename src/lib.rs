@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Env, String, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Env, Map, String, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -132,6 +132,18 @@ impl TrustLayerContract {
             }
         }
         0
+    }
+
+    /// Set the business category for a business profile.
+    pub fn set_category(env: Env, business_id: u32, category: Symbol) {
+        let key = Symbol::new(&env, "category");
+        let mut categories: Map<u32, Symbol> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        categories.set(business_id, category);
+        env.storage().persistent().set(&key, &categories);
     }
 }
 
