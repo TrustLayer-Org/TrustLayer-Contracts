@@ -260,3 +260,14 @@ fn test_get_profile_defaults() {
     assert_eq!(profile.tier, 0);
     assert_eq!(profile.active, true);
 }
+
+#[test]
+fn test_set_category_overwrite() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_category(&0, &Symbol::new(&env, "retail"));
+    client.set_category(&0, &Symbol::new(&env, "finance"));
+    assert_eq!(client.get_category(&0), Symbol::new(&env, "finance"));
+}
