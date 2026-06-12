@@ -343,3 +343,14 @@ fn test_count_businesses_empty() {
 
     assert_eq!(client.count_businesses(), 0);
 }
+
+#[test]
+fn test_is_verified_reflects_tier() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.is_verified(&0), false);
+    client.set_verification_tier(&0, &1);
+    assert_eq!(client.is_verified(&0), true);
+}
