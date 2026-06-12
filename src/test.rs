@@ -119,3 +119,17 @@ fn test_is_active_default_true() {
 
     assert_eq!(client.is_active(&42), true);
 }
+
+#[test]
+fn test_get_business_existing() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    let id = client.register_business(
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Alpha Logistics"),
+    );
+    let business = client.get_business(&id).unwrap();
+    assert_eq!(business.company_name, String::from_str(&env, "Alpha Logistics"));
+}
