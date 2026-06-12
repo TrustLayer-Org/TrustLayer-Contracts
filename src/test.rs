@@ -214,3 +214,19 @@ fn test_register_verified_business_sets_tier() {
     assert_eq!(id, 0);
     assert_eq!(client.get_verification_tier(&id), 4);
 }
+
+#[test]
+fn test_register_verified_business_also_registers() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    let id = client.register_verified_business(
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Alpha Logistics"),
+        &2,
+    );
+    assert_eq!(client.count_businesses(), 1);
+    let business = client.get_business(&id).unwrap();
+    assert_eq!(business.wallet, String::from_str(&env, "GABC..."));
+}
