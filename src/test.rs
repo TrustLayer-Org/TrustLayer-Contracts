@@ -70,3 +70,13 @@ fn test_get_category_default_none() {
 
     assert_eq!(client.get_category(&7), Symbol::new(&env, "none"));
 }
+
+#[test]
+fn test_set_and_get_verification_tier() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_verification_tier(&0, &3);
+    assert_eq!(client.get_verification_tier(&0), 3);
+}
