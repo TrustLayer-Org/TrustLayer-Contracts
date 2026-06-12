@@ -312,6 +312,18 @@ impl TrustLayerContract {
             Self::deactivate_business(env, business_id);
         }
     }
+
+    /// Count registered businesses that are currently active.
+    pub fn count_active_businesses(env: Env) -> u32 {
+        let total = Self::count_businesses(env.clone());
+        let mut count: u32 = 0;
+        for id in 0..total {
+            if Self::is_active(env.clone(), id) {
+                count += 1;
+            }
+        }
+        count
+    }
 }
 
 mod test;
