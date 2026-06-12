@@ -422,3 +422,14 @@ fn test_set_profile_active_true() {
     assert_eq!(client.is_active(&0), true);
     assert_eq!(client.is_active_and_verified(&0), true);
 }
+
+#[test]
+fn test_is_active_and_verified_false_when_inactive() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_verification_tier(&0, &2);
+    client.deactivate_business(&0);
+    assert_eq!(client.is_active_and_verified(&0), false);
+}
