@@ -142,3 +142,21 @@ fn test_get_business_out_of_range_none() {
 
     assert_eq!(client.get_business(&3), None);
 }
+
+#[test]
+fn test_count_businesses() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.count_businesses(), 0);
+    client.register_business(
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Alpha Logistics"),
+    );
+    client.register_business(
+        &String::from_str(&env, "GDEF..."),
+        &String::from_str(&env, "Beta Corp"),
+    );
+    assert_eq!(client.count_businesses(), 2);
+}
