@@ -133,3 +133,12 @@ fn test_get_business_existing() {
     let business = client.get_business(&id).unwrap();
     assert_eq!(business.company_name, String::from_str(&env, "Alpha Logistics"));
 }
+
+#[test]
+fn test_get_business_out_of_range_none() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.get_business(&3), None);
+}
