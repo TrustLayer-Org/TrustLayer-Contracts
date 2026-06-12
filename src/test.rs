@@ -190,3 +190,12 @@ fn test_meets_tier_equal_boundary() {
     client.set_verification_tier(&0, &2);
     assert_eq!(client.meets_tier(&0, &2), true);
 }
+
+#[test]
+fn test_meets_tier_default_zero_fails_requirement() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.meets_tier(&0, &1), false);
+}
