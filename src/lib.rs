@@ -30,6 +30,15 @@ pub struct ScoreRecord {
     pub score: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BusinessProfile {
+    pub business_id: u32,
+    pub category: Symbol,
+    pub tier: u32,
+    pub active: bool,
+}
+
 #[contract]
 pub struct TrustLayerContract;
 
