@@ -37,6 +37,19 @@ cargo fmt --all -- --check
 - `src/test.rs` – Tests
 - `Cargo.toml` – Dependencies and profile (release uses `opt-level = "z"` for contracts)
 
+## Business Profile API
+
+Beyond scoring, the contract stores lightweight profile metadata per business:
+
+- `set_category` / `get_category` – business category (defaults to `none`)
+- `set_verification_tier` / `get_verification_tier` – tier (defaults to `0`)
+- `bump_tier` / `downgrade_tier` – adjust the tier by one
+- `deactivate_business` / `reactivate_business` / `is_active` – active status
+- `is_verified` / `is_active_and_verified` / `meets_tier` – status checks
+- `set_profile` / `get_profile` – set or read the full `BusinessProfile`
+- `register_verified_business` – register and set a tier in one call
+- `get_business` / `count_businesses` / `count_active_businesses` – registry queries
+
 ## Contributing
 
 1. Fork the repo and create a branch from `main`.
