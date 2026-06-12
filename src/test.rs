@@ -160,3 +160,13 @@ fn test_count_businesses() {
     );
     assert_eq!(client.count_businesses(), 2);
 }
+
+#[test]
+fn test_meets_tier_true() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_verification_tier(&0, &3);
+    assert_eq!(client.meets_tier(&0, &2), true);
+}
