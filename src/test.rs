@@ -363,3 +363,14 @@ fn test_is_verified_default_false() {
 
     assert_eq!(client.is_verified(&7), false);
 }
+
+#[test]
+fn test_bump_tier_increments_and_returns() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.bump_tier(&0), 1);
+    assert_eq!(client.bump_tier(&0), 2);
+    assert_eq!(client.get_verification_tier(&0), 2);
+}
