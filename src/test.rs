@@ -99,3 +99,14 @@ fn test_deactivate_business_sets_inactive() {
     client.deactivate_business(&0);
     assert_eq!(client.is_active(&0), false);
 }
+
+#[test]
+fn test_reactivate_business_sets_active() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.deactivate_business(&0);
+    client.reactivate_business(&0);
+    assert_eq!(client.is_active(&0), true);
+}
