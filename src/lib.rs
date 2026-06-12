@@ -181,6 +181,18 @@ impl TrustLayerContract {
             .unwrap_or_else(|| Map::new(&env));
         tiers.get(business_id).unwrap_or(0)
     }
+
+    /// Deactivate a business, marking it inactive in the profile store.
+    pub fn deactivate_business(env: Env, business_id: u32) {
+        let key = Symbol::new(&env, "active");
+        let mut active: Map<u32, bool> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        active.set(business_id, false);
+        env.storage().persistent().set(&key, &active);
+    }
 }
 
 mod test;
