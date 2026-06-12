@@ -317,3 +317,20 @@ fn test_active_isolation_between_businesses() {
     assert_eq!(client.is_active(&0), false);
     assert_eq!(client.is_active(&1), true);
 }
+
+#[test]
+fn test_profile_survives_reactivation() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_category(&0, &Symbol::new(&env, "retail"));
+    client.set_verification_tier(&0, &2);
+    client.deactivate_business(&0);
+    client.reactivate_business(&0);
+
+    let profile = client.get_profile(&0);
+    assert_eq!(profile.category, Symbol::new(&env, "retail"));
+    assert_eq!(profile.tier, 2);
+    assert_eq!(profile.active, true);
+}
