@@ -286,6 +286,13 @@ impl TrustLayerContract {
     pub fn is_verified(env: Env, business_id: u32) -> bool {
         Self::get_verification_tier(env, business_id) >= 1
     }
+
+    /// Increment a business's verification tier by one and return the new tier.
+    pub fn bump_tier(env: Env, business_id: u32) -> u32 {
+        let next = Self::get_verification_tier(env.clone(), business_id) + 1;
+        Self::set_verification_tier(env, business_id, next);
+        next
+    }
 }
 
 mod test;
