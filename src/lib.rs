@@ -247,6 +247,18 @@ impl TrustLayerContract {
     pub fn meets_tier(env: Env, business_id: u32, required: u32) -> bool {
         Self::get_verification_tier(env, business_id) >= required
     }
+
+    /// Register a business and immediately set its verification tier.
+    pub fn register_verified_business(
+        env: Env,
+        wallet: String,
+        company_name: String,
+        tier: u32,
+    ) -> u32 {
+        let id = Self::register_business(env.clone(), wallet, company_name);
+        Self::set_verification_tier(env, id, tier);
+        id
+    }
 }
 
 mod test;
