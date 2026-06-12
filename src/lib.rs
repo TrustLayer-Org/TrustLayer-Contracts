@@ -301,6 +301,17 @@ impl TrustLayerContract {
         Self::set_verification_tier(env, business_id, next);
         next
     }
+
+    /// Set category, tier, and active status for a business in a single call.
+    pub fn set_profile(env: Env, business_id: u32, category: Symbol, tier: u32, active: bool) {
+        Self::set_category(env.clone(), business_id, category);
+        Self::set_verification_tier(env.clone(), business_id, tier);
+        if active {
+            Self::reactivate_business(env, business_id);
+        } else {
+            Self::deactivate_business(env, business_id);
+        }
+    }
 }
 
 mod test;
