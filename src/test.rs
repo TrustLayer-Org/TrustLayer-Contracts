@@ -89,3 +89,13 @@ fn test_get_verification_tier_default_zero() {
 
     assert_eq!(client.get_verification_tier(&5), 0);
 }
+
+#[test]
+fn test_deactivate_business_sets_inactive() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.deactivate_business(&0);
+    assert_eq!(client.is_active(&0), false);
+}
