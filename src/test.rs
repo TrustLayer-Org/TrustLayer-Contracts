@@ -411,3 +411,14 @@ fn test_set_profile_sets_all_fields() {
     assert_eq!(profile.tier, 3);
     assert_eq!(profile.active, false);
 }
+
+#[test]
+fn test_set_profile_active_true() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_profile(&0, &Symbol::new(&env, "fintech"), &5, &true);
+    assert_eq!(client.is_active(&0), true);
+    assert_eq!(client.is_active_and_verified(&0), true);
+}
