@@ -293,6 +293,14 @@ impl TrustLayerContract {
         Self::set_verification_tier(env, business_id, next);
         next
     }
+
+    /// Decrease a business's verification tier by one, never below zero.
+    pub fn downgrade_tier(env: Env, business_id: u32) -> u32 {
+        let current = Self::get_verification_tier(env.clone(), business_id);
+        let next = if current > 0 { current - 1 } else { 0 };
+        Self::set_verification_tier(env, business_id, next);
+        next
+    }
 }
 
 mod test;
