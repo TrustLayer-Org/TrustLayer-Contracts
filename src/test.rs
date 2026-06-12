@@ -306,3 +306,14 @@ fn test_tier_isolation_between_businesses() {
     assert_eq!(client.get_verification_tier(&0), 2);
     assert_eq!(client.get_verification_tier(&1), 4);
 }
+
+#[test]
+fn test_active_isolation_between_businesses() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.deactivate_business(&0);
+    assert_eq!(client.is_active(&0), false);
+    assert_eq!(client.is_active(&1), true);
+}
