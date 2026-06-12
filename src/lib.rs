@@ -158,6 +158,18 @@ impl TrustLayerContract {
             .get(business_id)
             .unwrap_or_else(|| Symbol::new(&env, "none"))
     }
+
+    /// Set the verification tier for a business.
+    pub fn set_verification_tier(env: Env, business_id: u32, tier: u32) {
+        let key = Symbol::new(&env, "tier");
+        let mut tiers: Map<u32, u32> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        tiers.set(business_id, tier);
+        env.storage().persistent().set(&key, &tiers);
+    }
 }
 
 mod test;
