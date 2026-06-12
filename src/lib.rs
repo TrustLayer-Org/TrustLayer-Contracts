@@ -281,6 +281,11 @@ impl TrustLayerContract {
             active,
         }
     }
+
+    /// Report whether a business has a verification tier of at least one.
+    pub fn is_verified(env: Env, business_id: u32) -> bool {
+        Self::get_verification_tier(env, business_id) >= 1
+    }
 }
 
 mod test;
