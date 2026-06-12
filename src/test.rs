@@ -110,3 +110,12 @@ fn test_reactivate_business_sets_active() {
     client.reactivate_business(&0);
     assert_eq!(client.is_active(&0), true);
 }
+
+#[test]
+fn test_is_active_default_true() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.is_active(&42), true);
+}
