@@ -334,3 +334,12 @@ fn test_profile_survives_reactivation() {
     assert_eq!(profile.tier, 2);
     assert_eq!(profile.active, true);
 }
+
+#[test]
+fn test_count_businesses_empty() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.count_businesses(), 0);
+}
