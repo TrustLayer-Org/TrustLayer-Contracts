@@ -433,3 +433,17 @@ fn test_is_active_and_verified_false_when_inactive() {
     client.deactivate_business(&0);
     assert_eq!(client.is_active_and_verified(&0), false);
 }
+
+#[test]
+fn test_count_active_businesses() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(&String::from_str(&env, "G1"), &String::from_str(&env, "One"));
+    client.register_business(&String::from_str(&env, "G2"), &String::from_str(&env, "Two"));
+    client.register_business(&String::from_str(&env, "G3"), &String::from_str(&env, "Three"));
+    assert_eq!(client.count_active_businesses(), 3);
+    client.deactivate_business(&1);
+    assert_eq!(client.count_active_businesses(), 2);
+}
