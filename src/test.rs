@@ -199,3 +199,18 @@ fn test_meets_tier_default_zero_fails_requirement() {
 
     assert_eq!(client.meets_tier(&0, &1), false);
 }
+
+#[test]
+fn test_register_verified_business_sets_tier() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    let id = client.register_verified_business(
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Alpha Logistics"),
+        &4,
+    );
+    assert_eq!(id, 0);
+    assert_eq!(client.get_verification_tier(&id), 4);
+}
