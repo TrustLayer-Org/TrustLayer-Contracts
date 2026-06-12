@@ -386,3 +386,15 @@ fn test_downgrade_tier_floors_at_zero() {
     assert_eq!(client.downgrade_tier(&0), 0);
     assert_eq!(client.downgrade_tier(&0), 0);
 }
+
+#[test]
+fn test_bump_then_downgrade_round_trip() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.bump_tier(&0);
+    client.bump_tier(&0);
+    client.downgrade_tier(&0);
+    assert_eq!(client.get_verification_tier(&0), 1);
+}
