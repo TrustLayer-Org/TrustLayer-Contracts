@@ -216,6 +216,21 @@ impl TrustLayerContract {
             .unwrap_or_else(|| Map::new(&env));
         active.get(business_id).unwrap_or(true)
     }
+
+    /// Get a registered business by id, or None when out of range.
+    pub fn get_business(env: Env, business_id: u32) -> Option<Business> {
+        let key = Symbol::new(&env, "business");
+        let businesses: Vec<Business> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if business_id < businesses.len() {
+            Some(businesses.get(business_id).unwrap())
+        } else {
+            None
+        }
+    }
 }
 
 mod test;
