@@ -324,6 +324,11 @@ impl TrustLayerContract {
         }
         count
     }
+
+    /// Report whether a business is both active and verified.
+    pub fn is_active_and_verified(env: Env, business_id: u32) -> bool {
+        Self::is_active(env.clone(), business_id) && Self::is_verified(env, business_id)
+    }
 }
 
 mod test;
