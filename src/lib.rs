@@ -231,6 +231,17 @@ impl TrustLayerContract {
             None
         }
     }
+
+    /// Count the number of registered businesses.
+    pub fn count_businesses(env: Env) -> u32 {
+        let key = Symbol::new(&env, "business");
+        let businesses: Vec<Business> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        businesses.len()
+    }
 }
 
 mod test;
