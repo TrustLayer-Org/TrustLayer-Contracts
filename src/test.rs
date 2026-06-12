@@ -51,3 +51,13 @@ fn test_verify_trust_score_unknown_business() {
     let score = client.verify_trust_score(&99);
     assert_eq!(score, 0);
 }
+
+#[test]
+fn test_set_and_get_category() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_category(&0, &Symbol::new(&env, "logistics"));
+    assert_eq!(client.get_category(&0), Symbol::new(&env, "logistics"));
+}
