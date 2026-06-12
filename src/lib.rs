@@ -145,6 +145,19 @@ impl TrustLayerContract {
         categories.set(business_id, category);
         env.storage().persistent().set(&key, &categories);
     }
+
+    /// Get the business category, defaulting to "none" when unset.
+    pub fn get_category(env: Env, business_id: u32) -> Symbol {
+        let key = Symbol::new(&env, "category");
+        let categories: Map<u32, Symbol> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        categories
+            .get(business_id)
+            .unwrap_or_else(|| Symbol::new(&env, "none"))
+    }
 }
 
 mod test;
