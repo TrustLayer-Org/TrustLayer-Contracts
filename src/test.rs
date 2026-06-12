@@ -247,3 +247,16 @@ fn test_get_profile_aggregates_all_fields() {
     assert_eq!(profile.tier, 3);
     assert_eq!(profile.active, false);
 }
+
+#[test]
+fn test_get_profile_defaults() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    let profile = client.get_profile(&9);
+    assert_eq!(profile.business_id, 9);
+    assert_eq!(profile.category, Symbol::new(&env, "none"));
+    assert_eq!(profile.tier, 0);
+    assert_eq!(profile.active, true);
+}
