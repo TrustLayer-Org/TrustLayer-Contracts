@@ -294,3 +294,15 @@ fn test_category_isolation_between_businesses() {
     assert_eq!(client.get_category(&0), Symbol::new(&env, "retail"));
     assert_eq!(client.get_category(&1), Symbol::new(&env, "logistics"));
 }
+
+#[test]
+fn test_tier_isolation_between_businesses() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_verification_tier(&0, &2);
+    client.set_verification_tier(&1, &4);
+    assert_eq!(client.get_verification_tier(&0), 2);
+    assert_eq!(client.get_verification_tier(&1), 4);
+}
