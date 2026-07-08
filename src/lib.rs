@@ -425,6 +425,19 @@ impl TrustLayerContract {
         }
         count
     }
+
+    /// Aggregate signal count, average value, and presence into a stats view.
+    pub fn get_business_stats(env: Env, business_id: u32) -> BusinessStats {
+        let signal_count = Self::count_signals_for_business(env.clone(), business_id);
+        let average_value = Self::average_signal_value(env.clone(), business_id);
+        let has_signals = Self::has_signals(env, business_id);
+        BusinessStats {
+            business_id,
+            signal_count,
+            average_value,
+            has_signals,
+        }
+    }
 }
 
 mod test;
