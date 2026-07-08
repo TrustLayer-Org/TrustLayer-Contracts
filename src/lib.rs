@@ -372,6 +372,31 @@ impl TrustLayerContract {
         }
         latest
     }
+
+    /// Average raw signal value for a business; zero when it has none.
+    pub fn average_signal_value(env: Env, business_id: u32) -> i128 {
+        let key = Symbol::new(&env, "signals");
+        let signals: Vec<SignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut total: i128 = 0;
+        let mut count: i128 = 0;
+        let len = signals.len();
+        for i in 0..len {
+            let record = signals.get(i).unwrap();
+            if record.business_id == business_id {
+                total += record.signal.value;
+                count += 1;
+            }
+        }
+        if count > 0 {
+            total / count
+        } else {
+            0
+        }
+    }
 }
 
 mod test;
