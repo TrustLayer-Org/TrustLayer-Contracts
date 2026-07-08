@@ -51,6 +51,16 @@ Beyond scoring, the contract stores lightweight profile metadata per business:
 - `register_verified_business` – register and set a tier in one call
 - `get_business` / `count_businesses` / `count_active_businesses` – registry queries
 
+## Business Signal Stats API
+
+Lightweight aggregates over a business's recorded signals, without recomputing a full trust score:
+
+- `count_signals_for_business` / `has_signals` – how many signals a business has, and whether it has any
+- `latest_signal_value` – the most recently recorded signal's value
+- `average_signal_value` – mean raw signal value (zero when there are none)
+- `signal_type_count` – how many signals of a given type a business has
+- `get_business_stats` – aggregate count, average, and presence into a `BusinessStats` view
+
 ## Contributing
 
 1. Fork the repo and create a branch from `main`.
