@@ -510,3 +510,15 @@ fn test_latest_signal_value_none_when_empty() {
 
     assert_eq!(client.latest_signal_value(&0), None);
 }
+
+#[test]
+fn test_latest_signal_value_returns_the_most_recent_value() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
+    client.record_signal(&0, &Symbol::new(&env, "review"), &42);
+
+    assert_eq!(client.latest_signal_value(&0), Some(42));
+}
