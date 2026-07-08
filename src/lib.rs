@@ -39,6 +39,15 @@ pub struct BusinessProfile {
     pub active: bool,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BusinessStats {
+    pub business_id: u32,
+    pub signal_count: u32,
+    pub average_value: i128,
+    pub has_signals: bool,
+}
+
 #[contract]
 pub struct TrustLayerContract;
 
