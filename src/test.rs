@@ -482,3 +482,12 @@ fn test_count_signals_for_business_counts_only_matching_business() {
     assert_eq!(client.count_signals_for_business(&0), 2);
     assert_eq!(client.count_signals_for_business(&1), 1);
 }
+
+#[test]
+fn test_has_signals_false_by_default() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.has_signals(&0), false);
+}
