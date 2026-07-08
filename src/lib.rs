@@ -348,6 +348,11 @@ impl TrustLayerContract {
         }
         count
     }
+
+    /// Report whether a business has at least one recorded signal.
+    pub fn has_signals(env: Env, business_id: u32) -> bool {
+        Self::count_signals_for_business(env, business_id) > 0
+    }
 }
 
 mod test;
