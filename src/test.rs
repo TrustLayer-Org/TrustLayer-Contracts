@@ -543,3 +543,28 @@ fn test_average_signal_value_averages_recorded_values() {
 
     assert_eq!(client.average_signal_value(&0), 150);
 }
+
+#[test]
+fn test_signal_type_count_filters_by_type() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
+    client.record_signal(&0, &Symbol::new(&env, "payment"), &50);
+    client.record_signal(&0, &Symbol::new(&env, "review"), &10);
+    client.record_signal(&1, &Symbol::new(&env, "payment"), &75);
+
+    assert_eq!(
+        client.signal_type_count(&0, &Symbol::new(&env, "payment")),
+        2
+    );
+    assert_eq!(
+        client.signal_type_count(&0, &Symbol::new(&env, "review")),
+        1
+    );
+    assert_eq!(
+        client.signal_type_count(&0, &Symbol::new(&env, "dispute")),
+        0
+    );
+}
