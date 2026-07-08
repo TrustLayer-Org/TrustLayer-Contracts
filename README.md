@@ -6,6 +6,7 @@ Soroban smart contracts for the TrustLayer protocol on the Stellar network. They
 
 - **TrustLayer contract** – `register_business`, `record_signal`, `update_trust_score`, `verify_trust_score`
 - **Business profiles** – categories, verification tiers, active status, and `BusinessProfile`
+- **Signal stats** – per-business signal counts, averages, and `BusinessStats`
 - **Tests** – Unit tests in `src/test.rs`
 - **CI** – Format check, build, and tests on push/PR to `main`
 
