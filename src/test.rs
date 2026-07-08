@@ -531,3 +531,15 @@ fn test_average_signal_value_zero_when_empty() {
 
     assert_eq!(client.average_signal_value(&0), 0);
 }
+
+#[test]
+fn test_average_signal_value_averages_recorded_values() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
+    client.record_signal(&0, &Symbol::new(&env, "payment"), &200);
+
+    assert_eq!(client.average_signal_value(&0), 150);
+}
