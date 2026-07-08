@@ -491,3 +491,13 @@ fn test_has_signals_false_by_default() {
 
     assert_eq!(client.has_signals(&0), false);
 }
+
+#[test]
+fn test_has_signals_true_after_recording_a_signal() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
+    assert_eq!(client.has_signals(&0), true);
+}
