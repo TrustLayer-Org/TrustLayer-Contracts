@@ -459,3 +459,12 @@ fn test_count_active_businesses() {
     client.deactivate_business(&1);
     assert_eq!(client.count_active_businesses(), 2);
 }
+
+#[test]
+fn test_count_signals_for_business_with_no_signals() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.count_signals_for_business(&0), 0);
+}
