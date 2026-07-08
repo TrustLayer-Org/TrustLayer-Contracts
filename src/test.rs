@@ -568,3 +568,19 @@ fn test_signal_type_count_filters_by_type() {
         0
     );
 }
+
+#[test]
+fn test_get_business_stats_aggregates_all_fields() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
+    client.record_signal(&0, &Symbol::new(&env, "payment"), &200);
+
+    let stats = client.get_business_stats(&0);
+    assert_eq!(stats.business_id, 0);
+    assert_eq!(stats.signal_count, 2);
+    assert_eq!(stats.average_value, 150);
+    assert_eq!(stats.has_signals, true);
+}
