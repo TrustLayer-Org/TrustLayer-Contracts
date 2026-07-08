@@ -522,3 +522,12 @@ fn test_latest_signal_value_returns_the_most_recent_value() {
 
     assert_eq!(client.latest_signal_value(&0), Some(42));
 }
+
+#[test]
+fn test_average_signal_value_zero_when_empty() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.average_signal_value(&0), 0);
+}
