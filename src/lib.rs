@@ -353,6 +353,25 @@ impl TrustLayerContract {
     pub fn has_signals(env: Env, business_id: u32) -> bool {
         Self::count_signals_for_business(env, business_id) > 0
     }
+
+    /// Return the value of the most recently recorded signal for a business.
+    pub fn latest_signal_value(env: Env, business_id: u32) -> Option<i128> {
+        let key = Symbol::new(&env, "signals");
+        let signals: Vec<SignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut latest: Option<i128> = None;
+        let len = signals.len();
+        for i in 0..len {
+            let record = signals.get(i).unwrap();
+            if record.business_id == business_id {
+                latest = Some(record.signal.value);
+            }
+        }
+        latest
+    }
 }
 
 mod test;
