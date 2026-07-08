@@ -329,6 +329,25 @@ impl TrustLayerContract {
     pub fn is_active_and_verified(env: Env, business_id: u32) -> bool {
         Self::is_active(env.clone(), business_id) && Self::is_verified(env, business_id)
     }
+
+    /// Count how many signals have been recorded for a business.
+    pub fn count_signals_for_business(env: Env, business_id: u32) -> u32 {
+        let key = Symbol::new(&env, "signals");
+        let signals: Vec<SignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut count: u32 = 0;
+        let len = signals.len();
+        for i in 0..len {
+            let record = signals.get(i).unwrap();
+            if record.business_id == business_id {
+                count += 1;
+            }
+        }
+        count
+    }
 }
 
 mod test;
