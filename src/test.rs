@@ -501,3 +501,12 @@ fn test_has_signals_true_after_recording_a_signal() {
     client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
     assert_eq!(client.has_signals(&0), true);
 }
+
+#[test]
+fn test_latest_signal_value_none_when_empty() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.latest_signal_value(&0), None);
+}
