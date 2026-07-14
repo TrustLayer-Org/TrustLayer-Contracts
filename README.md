@@ -62,6 +62,16 @@ Lightweight aggregates over a business's recorded signals, without recomputing a
 - `signal_type_count` – how many signals of a given type a business has
 - `get_business_stats` – aggregate count, average, and presence into a `BusinessStats` view
 
+## Verification Tier Registry API
+
+Query the business registry by verification tier or category, without recomputing profiles one at a time:
+
+- `count_businesses_at_tier` / `list_business_ids_at_tier` – businesses at an exact tier
+- `highest_tier` – the highest verification tier among registered businesses
+- `list_business_ids_meeting_tier` – businesses at or above a required tier
+- `count_businesses_in_category` / `list_business_ids_in_category` – businesses in a given category
+- `get_tier_summary` – aggregate count and ids for a tier into a `TierSummary` view
+
 ## Contributing
 
 1. Fork the repo and create a branch from `main`.
