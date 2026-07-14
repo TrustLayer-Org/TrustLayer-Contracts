@@ -450,6 +450,18 @@ impl TrustLayerContract {
         }
         count
     }
+
+    /// List the ids of registered businesses whose verification tier equals `tier`.
+    pub fn list_business_ids_at_tier(env: Env, tier: u32) -> Vec<u32> {
+        let total = Self::count_businesses(env.clone());
+        let mut ids: Vec<u32> = Vec::new(&env);
+        for id in 0..total {
+            if Self::get_verification_tier(env.clone(), id) == tier {
+                ids.push_back(id);
+            }
+        }
+        ids
+    }
 }
 
 mod test;
