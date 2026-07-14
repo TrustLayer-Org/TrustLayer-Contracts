@@ -670,3 +670,31 @@ fn test_highest_tier_returns_the_max_tier() {
 
     assert_eq!(client.highest_tier(), 4);
 }
+
+#[test]
+fn test_list_business_ids_meeting_tier_filters_by_threshold() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "G1"),
+        &String::from_str(&env, "One"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G2"),
+        &String::from_str(&env, "Two"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G3"),
+        &String::from_str(&env, "Three"),
+    );
+    client.set_verification_tier(&0, &3);
+    client.set_verification_tier(&1, &1);
+    client.set_verification_tier(&2, &2);
+
+    let ids = client.list_business_ids_meeting_tier(&2);
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids.get(0), Some(0));
+    assert_eq!(ids.get(1), Some(2));
+}
