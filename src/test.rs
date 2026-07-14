@@ -721,3 +721,24 @@ fn test_count_businesses_in_category_counts_matches() {
         1
     );
 }
+
+#[test]
+fn test_list_business_ids_in_category_returns_matching_ids() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "G1"),
+        &String::from_str(&env, "One"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G2"),
+        &String::from_str(&env, "Two"),
+    );
+    client.set_category(&0, &Symbol::new(&env, "retail"));
+    client.set_category(&1, &Symbol::new(&env, "retail"));
+
+    let ids = client.list_business_ids_in_category(&Symbol::new(&env, "retail"));
+    assert_eq!(ids.len(), 2);
+}
