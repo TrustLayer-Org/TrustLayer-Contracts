@@ -698,3 +698,26 @@ fn test_list_business_ids_meeting_tier_filters_by_threshold() {
     assert_eq!(ids.get(0), Some(0));
     assert_eq!(ids.get(1), Some(2));
 }
+
+#[test]
+fn test_count_businesses_in_category_counts_matches() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "G1"),
+        &String::from_str(&env, "One"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G2"),
+        &String::from_str(&env, "Two"),
+    );
+    client.set_category(&0, &Symbol::new(&env, "retail"));
+    client.set_category(&1, &Symbol::new(&env, "fintech"));
+
+    assert_eq!(
+        client.count_businesses_in_category(&Symbol::new(&env, "retail")),
+        1
+    );
+}
