@@ -765,3 +765,15 @@ fn test_get_tier_summary_aggregates_count_and_ids() {
     assert_eq!(summary.business_count, 2);
     assert_eq!(summary.business_ids.len(), 2);
 }
+
+#[test]
+fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    let summary = client.get_tier_summary(&5);
+    assert_eq!(summary.tier, 5);
+    assert_eq!(summary.business_count, 0);
+    assert_eq!(summary.business_ids.len(), 0);
+}
