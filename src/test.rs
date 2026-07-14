@@ -650,3 +650,23 @@ fn test_highest_tier_zero_when_no_businesses() {
 
     assert_eq!(client.highest_tier(), 0);
 }
+
+#[test]
+fn test_highest_tier_returns_the_max_tier() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "G1"),
+        &String::from_str(&env, "One"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G2"),
+        &String::from_str(&env, "Two"),
+    );
+    client.set_verification_tier(&0, &2);
+    client.set_verification_tier(&1, &4);
+
+    assert_eq!(client.highest_tier(), 4);
+}
