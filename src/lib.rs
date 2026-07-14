@@ -487,6 +487,18 @@ impl TrustLayerContract {
         }
         ids
     }
+
+    /// Count registered businesses assigned to a given category.
+    pub fn count_businesses_in_category(env: Env, category: Symbol) -> u32 {
+        let total = Self::count_businesses(env.clone());
+        let mut count: u32 = 0;
+        for id in 0..total {
+            if Self::get_category(env.clone(), id) == category {
+                count += 1;
+            }
+        }
+        count
+    }
 }
 
 mod test;
