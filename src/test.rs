@@ -641,3 +641,12 @@ fn test_list_business_ids_at_tier_returns_matching_ids() {
     assert_eq!(ids.len(), 1);
     assert_eq!(ids.get(0), Some(0));
 }
+
+#[test]
+fn test_highest_tier_zero_when_no_businesses() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.highest_tier(), 0);
+}
