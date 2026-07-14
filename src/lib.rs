@@ -499,6 +499,18 @@ impl TrustLayerContract {
         }
         count
     }
+
+    /// List the ids of registered businesses assigned to a given category.
+    pub fn list_business_ids_in_category(env: Env, category: Symbol) -> Vec<u32> {
+        let total = Self::count_businesses(env.clone());
+        let mut ids: Vec<u32> = Vec::new(&env);
+        for id in 0..total {
+            if Self::get_category(env.clone(), id) == category {
+                ids.push_back(id);
+            }
+        }
+        ids
+    }
 }
 
 mod test;
