@@ -593,3 +593,29 @@ fn test_count_businesses_at_tier_zero_when_none_registered() {
 
     assert_eq!(client.count_businesses_at_tier(&2), 0);
 }
+
+#[test]
+fn test_count_businesses_at_tier_counts_only_matching_tier() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "G1"),
+        &String::from_str(&env, "One"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G2"),
+        &String::from_str(&env, "Two"),
+    );
+    client.register_business(
+        &String::from_str(&env, "G3"),
+        &String::from_str(&env, "Three"),
+    );
+    client.set_verification_tier(&0, &2);
+    client.set_verification_tier(&1, &2);
+    client.set_verification_tier(&2, &1);
+
+    assert_eq!(client.count_businesses_at_tier(&2), 2);
+    assert_eq!(client.count_businesses_at_tier(&1), 1);
+}
