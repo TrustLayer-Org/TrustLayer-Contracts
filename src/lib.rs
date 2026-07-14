@@ -462,6 +462,19 @@ impl TrustLayerContract {
         }
         ids
     }
+
+    /// Highest verification tier among registered businesses; zero when none exist.
+    pub fn highest_tier(env: Env) -> u32 {
+        let total = Self::count_businesses(env.clone());
+        let mut highest: u32 = 0;
+        for id in 0..total {
+            let tier = Self::get_verification_tier(env.clone(), id);
+            if tier > highest {
+                highest = tier;
+            }
+        }
+        highest
+    }
 }
 
 mod test;
