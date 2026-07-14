@@ -438,6 +438,18 @@ impl TrustLayerContract {
             has_signals,
         }
     }
+
+    /// Count registered businesses whose verification tier equals `tier`.
+    pub fn count_businesses_at_tier(env: Env, tier: u32) -> u32 {
+        let total = Self::count_businesses(env.clone());
+        let mut count: u32 = 0;
+        for id in 0..total {
+            if Self::get_verification_tier(env.clone(), id) == tier {
+                count += 1;
+            }
+        }
+        count
+    }
 }
 
 mod test;
