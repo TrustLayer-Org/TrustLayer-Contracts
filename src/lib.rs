@@ -519,6 +519,17 @@ impl TrustLayerContract {
         }
         ids
     }
+
+    /// Aggregate business count and ids for a given verification tier.
+    pub fn get_tier_summary(env: Env, tier: u32) -> TierSummary {
+        let business_ids = Self::list_business_ids_at_tier(env.clone(), tier);
+        let business_count = business_ids.len();
+        TierSummary {
+            tier,
+            business_count,
+            business_ids,
+        }
+    }
 }
 
 mod test;
