@@ -584,3 +584,12 @@ fn test_get_business_stats_aggregates_all_fields() {
     assert_eq!(stats.average_value, 150);
     assert_eq!(stats.has_signals, true);
 }
+
+#[test]
+fn test_count_businesses_at_tier_zero_when_none_registered() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.count_businesses_at_tier(&2), 0);
+}
