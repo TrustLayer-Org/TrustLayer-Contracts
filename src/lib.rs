@@ -475,6 +475,18 @@ impl TrustLayerContract {
         }
         highest
     }
+
+    /// List the ids of registered businesses meeting a required verification tier.
+    pub fn list_business_ids_meeting_tier(env: Env, required: u32) -> Vec<u32> {
+        let total = Self::count_businesses(env.clone());
+        let mut ids: Vec<u32> = Vec::new(&env);
+        for id in 0..total {
+            if Self::meets_tier(env.clone(), id, required) {
+                ids.push_back(id);
+            }
+        }
+        ids
+    }
 }
 
 mod test;
