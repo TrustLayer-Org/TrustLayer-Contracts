@@ -48,6 +48,14 @@ pub struct BusinessStats {
     pub has_signals: bool,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TierSummary {
+    pub tier: u32,
+    pub business_count: u32,
+    pub business_ids: Vec<u32>,
+}
+
 #[contract]
 pub struct TrustLayerContract;
 
