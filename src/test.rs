@@ -2,6 +2,7 @@
 
 use super::*;
 use soroban_sdk::{Env, String, Symbol};
+use soroban_sdk::testutils::Address as _;
 
 #[test]
 fn test_register_business() {
@@ -776,4 +777,220 @@ fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
     assert_eq!(summary.tier, 5);
     assert_eq!(summary.business_count, 0);
     assert_eq!(summary.business_ids.len(), 0);
+}
+
+#[test]
+fn test_tier_admin_initialization_and_readback() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+
+    assert_eq!(client.get_tier_admin(), None);
+    client.initialize_tier_admin(&admin);
+    assert_eq!(client.get_tier_admin(), Some(admin));
+}
+
+#[test]
+#[should_panic(expected = "tier admin already initialized")]
+fn test_tier_admin_cannot_be_reinitialized() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let first = soroban_sdk::Address::generate(&env);
+    let second = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+
+    client.initialize_tier_admin(&first);
+    client.initialize_tier_admin(&second);
+}
+
+#[test]
+fn test_authorized_set_records_transition_at_lower_boundary() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+
+    let change = client.set_tier_authorized(&admin, &7, &0);
+    assert_eq!(change.business_id, 7);
+    assert_eq!(change.previous_tier, 0);
+    assert_eq!(change.next_tier, 0);
+    assert_eq!(client.get_verification_tier(&7), 0);
+}
+
+#[test]
+fn test_authorized_set_accepts_documented_upper_boundary() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+
+    let change = client.set_tier_authorized(&admin, &3, &MAX_VERIFICATION_TIER);
+    assert_eq!(change.next_tier, MAX_VERIFICATION_TIER);
+    assert_eq!(client.meets_tier(&3, &MAX_VERIFICATION_TIER), true);
+}
+
+#[test]
+#[should_panic(expected = "verification tier exceeds maximum")]
+fn test_authorized_set_rejects_upper_boundary_overflow() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+    client.set_tier_authorized(&admin, &3, &(MAX_VERIFICATION_TIER + 1));
+}
+
+#[test]
+#[should_panic(expected = "verification tier is already at maximum")]
+fn test_authorized_bump_rejects_overflow_at_maximum() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+    client.set_tier_authorized(&admin, &3, &MAX_VERIFICATION_TIER);
+    client.bump_tier_authorized(&admin, &3);
+}
+
+#[test]
+fn test_authorized_bump_is_checked_and_repeated() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+
+    for expected in 1..=MAX_VERIFICATION_TIER {
+        let change = client.bump_tier_authorized(&admin, &4);
+        assert_eq!(change.next_tier, expected);
+        assert_eq!(client.get_verification_tier(&4), expected);
+    }
+}
+
+#[test]
+fn test_authorized_downgrade_floors_without_underflow() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+
+    let first = client.downgrade_tier_authorized(&admin, &11);
+    let second = client.downgrade_tier_authorized(&admin, &11);
+    assert_eq!(first.previous_tier, 0);
+    assert_eq!(first.next_tier, 0);
+    assert_eq!(second.next_tier, 0);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized tier administrator")]
+fn test_wrong_admin_cannot_set_tier() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    let attacker = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+    client.set_tier_authorized(&attacker, &1, &9);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized tier administrator")]
+fn test_wrong_admin_cannot_bump_tier() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    let attacker = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+    client.bump_tier_authorized(&attacker, &1);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized tier administrator")]
+fn test_wrong_admin_cannot_downgrade_tier() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    let attacker = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+    client.downgrade_tier_authorized(&attacker, &1);
+}
+
+#[test]
+fn test_authorized_profile_update_is_observed_as_one_complete_view() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+
+    let profile = client.set_profile_authorized(
+        &admin,
+        &8,
+        &Symbol::new(&env, "finance"),
+        &MAX_VERIFICATION_TIER,
+        &false,
+    );
+    assert_eq!(profile.business_id, 8);
+    assert_eq!(profile.category, Symbol::new(&env, "finance"));
+    assert_eq!(profile.tier, MAX_VERIFICATION_TIER);
+    assert_eq!(profile.active, false);
+    let observed = client.get_profile(&8);
+    assert_eq!(observed, profile);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized tier administrator")]
+fn test_wrong_admin_cannot_update_compound_profile() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    let attacker = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+    client.set_profile_authorized(&attacker, &8, &Symbol::new(&env, "finance"), &9, &true);
+}
+
+#[test]
+fn test_legacy_writes_become_authorized_after_policy_initialization() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+    client.set_verification_tier(&6, &4);
+    client.set_profile(&6, &Symbol::new(&env, "banking"), &5, &true);
+    assert_eq!(client.get_verification_tier(&6), 5);
+    assert_eq!(client.get_category(&6), Symbol::new(&env, "banking"));
+}
+
+#[test]
+#[should_panic(expected = "verification tier exceeds maximum")]
+fn test_legacy_write_rejects_invalid_tier_after_policy_initialization() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let admin = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize_tier_admin(&admin);
+    client.set_verification_tier(&6, &(MAX_VERIFICATION_TIER + 1));
 }

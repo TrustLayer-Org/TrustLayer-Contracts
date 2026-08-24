@@ -1,6 +1,9 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, String, Symbol, Vec};
+
+pub const MAX_VERIFICATION_TIER: u32 = 10;
+const TIER_ADMIN: Symbol = soroban_sdk::symbol_short!("tieradmin");
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,11 +59,131 @@ pub struct TierSummary {
     pub business_ids: Vec<u32>,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TierTransition {
+    pub business_id: u32,
+    pub previous_tier: u32,
+    pub next_tier: u32,
+    pub reason: Symbol,
+}
+
 #[contract]
 pub struct TrustLayerContract;
 
 #[contractimpl]
 impl TrustLayerContract {
+    /// Configure the sole role allowed to change verification tiers.
+    ///
+    /// Initialization is deliberately explicit so deployments can bind the
+    /// policy to a governance or multisig address before any privileged write.
+    pub fn initialize_tier_admin(env: Env, admin: Address) {
+        if env.storage().instance().has(&TIER_ADMIN) {
+            panic!("tier admin already initialized");
+        }
+        admin.require_auth();
+        env.storage().instance().set(&TIER_ADMIN, &admin);
+    }
+
+    /// Return the configured tier administrator, if the policy is initialized.
+    pub fn get_tier_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&TIER_ADMIN)
+    }
+
+    fn authorize_tier_write(env: &Env) {
+        if let Some(admin) = env.storage().instance().get::<Symbol, Address>(&TIER_ADMIN) {
+            admin.require_auth();
+        }
+    }
+
+    fn validate_tier(tier: u32) {
+        if tier > MAX_VERIFICATION_TIER {
+            panic!("verification tier exceeds maximum");
+        }
+    }
+
+    fn write_tier(env: Env, business_id: u32, tier: u32, reason: Symbol) -> TierTransition {
+        Self::validate_tier(tier);
+        let previous_tier = Self::get_verification_tier(env.clone(), business_id);
+        let key = Symbol::new(&env, "tier");
+        let mut tiers: Map<u32, u32> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        tiers.set(business_id, tier);
+        env.storage().persistent().set(&key, &tiers);
+        let transition = TierTransition { business_id, previous_tier, next_tier: tier, reason };
+        env.events().publish((Symbol::new(&env, "tier_changed"),), transition.clone());
+        transition
+    }
+
+    /// Set a tier through the explicit administrator API.
+    pub fn set_tier_authorized(env: Env, admin: Address, business_id: u32, tier: u32) -> TierTransition {
+        admin.require_auth();
+        let configured = Self::get_tier_admin(env.clone()).unwrap_or_else(|| panic!("tier admin not initialized"));
+        if configured != admin {
+            panic!("unauthorized tier administrator");
+        }
+        Self::write_tier(env.clone(), business_id, tier, Symbol::new(&env, "set"))
+    }
+
+    /// Increase a tier without wrapping past the documented maximum.
+    pub fn bump_tier_authorized(env: Env, admin: Address, business_id: u32) -> TierTransition {
+        admin.require_auth();
+        let configured = Self::get_tier_admin(env.clone()).unwrap_or_else(|| panic!("tier admin not initialized"));
+        if configured != admin {
+            panic!("unauthorized tier administrator");
+        }
+        let current = Self::get_verification_tier(env.clone(), business_id);
+        if current >= MAX_VERIFICATION_TIER {
+            panic!("verification tier is already at maximum");
+        }
+        Self::write_tier(env.clone(), business_id, current + 1, Symbol::new(&env, "bump"))
+    }
+
+    /// Decrease a tier safely; zero is an idempotent lower bound.
+    pub fn downgrade_tier_authorized(env: Env, admin: Address, business_id: u32) -> TierTransition {
+        admin.require_auth();
+        let configured = Self::get_tier_admin(env.clone()).unwrap_or_else(|| panic!("tier admin not initialized"));
+        if configured != admin {
+            panic!("unauthorized tier administrator");
+        }
+        let current = Self::get_verification_tier(env.clone(), business_id);
+        let next = current.checked_sub(1).unwrap_or(0);
+        Self::write_tier(env.clone(), business_id, next, Symbol::new(&env, "downgrade"))
+    }
+
+    /// Update category, tier, and activity atomically under one authorization.
+    pub fn set_profile_authorized(
+        env: Env,
+        admin: Address,
+        business_id: u32,
+        category: Symbol,
+        tier: u32,
+        active: bool,
+    ) -> BusinessProfile {
+        admin.require_auth();
+        let configured = Self::get_tier_admin(env.clone()).unwrap_or_else(|| panic!("tier admin not initialized"));
+        if configured != admin {
+            panic!("unauthorized tier administrator");
+        }
+        Self::validate_tier(tier);
+        let category_key = Symbol::new(&env, "category");
+        let mut categories: Map<u32, Symbol> = env.storage().persistent().get(&category_key).unwrap_or_else(|| Map::new(&env));
+        categories.set(business_id, category);
+        let tier_key = Symbol::new(&env, "tier");
+        let mut tiers: Map<u32, u32> = env.storage().persistent().get(&tier_key).unwrap_or_else(|| Map::new(&env));
+        tiers.set(business_id, tier);
+        let active_key = Symbol::new(&env, "active");
+        let mut active_values: Map<u32, bool> = env.storage().persistent().get(&active_key).unwrap_or_else(|| Map::new(&env));
+        active_values.set(business_id, active);
+        env.storage().persistent().set(&category_key, &categories);
+        env.storage().persistent().set(&tier_key, &tiers);
+        env.storage().persistent().set(&active_key, &active_values);
+        env.events().publish((Symbol::new(&env, "profile_changed"),), business_id);
+        Self::get_profile(env, business_id)
+    }
     /// Register a business with wallet and company name.
     pub fn register_business(env: Env, wallet: String, company_name: String) -> u32 {
         let business = Business {
@@ -187,6 +310,8 @@ impl TrustLayerContract {
 
     /// Set the verification tier for a business.
     pub fn set_verification_tier(env: Env, business_id: u32, tier: u32) {
+        Self::authorize_tier_write(&env);
+        Self::validate_tier(tier);
         let key = Symbol::new(&env, "tier");
         let mut tiers: Map<u32, u32> = env
             .storage()
@@ -321,8 +446,10 @@ impl TrustLayerContract {
 
     /// Set category, tier, and active status for a business in a single call.
     pub fn set_profile(env: Env, business_id: u32, category: Symbol, tier: u32, active: bool) {
+        Self::authorize_tier_write(&env);
+        Self::validate_tier(tier);
         Self::set_category(env.clone(), business_id, category);
-        Self::set_verification_tier(env.clone(), business_id, tier);
+        Self::write_tier(env.clone(), business_id, tier, Symbol::new(&env, "profile"));
         if active {
             Self::reactivate_business(env, business_id);
         } else {
