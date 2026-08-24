@@ -138,6 +138,11 @@ otherwise wrap in release builds if it is not checked. The authorization tests
 also cover the mismatch after `require_auth`, ensuring that a valid signature
 from the wrong address is not accepted as the role.
 
+Operational dashboards should alert on rejected maximum bumps and repeated
+authorization failures. Those signals are useful indicators of stale clients,
+misconfigured governance, or an attempted privilege escalation. They should be
+reviewed alongside the emitted transition events and deployment logs.
+
 ## Review checklist
 
 - [ ] The maximum remains documented and tested.
