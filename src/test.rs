@@ -1,7 +1,10 @@
 #![cfg(test)]
 
+extern crate std;
+
 use super::*;
 use soroban_sdk::{Env, String, Symbol};
+use soroban_sdk::testutils::Address as _;
 
 #[test]
 fn test_register_business() {
@@ -567,6 +570,254 @@ fn test_signal_type_count_filters_by_type() {
         client.signal_type_count(&0, &Symbol::new(&env, "dispute")),
         0
     );
+}
+
+#[test]
+fn test_authorized_signal_accepts_and_returns_identity_state() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let submitter = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+
+    let result = client.record_signal_authorized(
+        &submitter,
+        &7,
+        &Symbol::new(&env, "payment"),
+        &100,
+        &String::from_str(&env, "invoice-7"),
+        &9,
+    );
+    assert_eq!(result.accepted, true);
+    assert_eq!(result.duplicate, false);
+    assert_eq!(result.signal_count, 1);
+    assert_eq!(client.latest_signal_nonce(&submitter), Some(9));
+}
+
+#[test]
+fn test_exact_retry_is_a_deterministic_duplicate_without_new_observation() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let submitter = soroban_sdk::Address::generate(&env);
+    let signal_type = Symbol::new(&env, "payment");
+    let context = String::from_str(&env, "invoice-7");
+    env.mock_all_auths();
+
+    let first = client.record_signal_authorized(&submitter, &7, &signal_type, &100, &context, &9);
+    let retry = client.record_signal_authorized(&submitter, &7, &signal_type, &100, &context, &9);
+    assert_eq!(first.accepted, true);
+    assert_eq!(retry.accepted, false);
+    assert_eq!(retry.duplicate, true);
+    assert_eq!(retry.signal_count, 1);
+    assert_eq!(client.count_signals_for_business(&7), 1);
+}
+
+#[test]
+fn test_identity_is_bound_to_business_type_value_context_submitter_and_nonce() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let first_submitter = soroban_sdk::Address::generate(&env);
+    let second_submitter = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+
+    let first = client.record_signal_authorized(
+        &first_submitter,
+        &1,
+        &Symbol::new(&env, "payment"),
+        &100,
+        &String::from_str(&env, "invoice-a"),
+        &1,
+    );
+    let changed_business = client.record_signal_authorized(
+        &first_submitter,
+        &2,
+        &Symbol::new(&env, "payment"),
+        &100,
+        &String::from_str(&env, "invoice-a"),
+        &2,
+    );
+    let changed_type = client.record_signal_authorized(
+        &first_submitter,
+        &1,
+        &Symbol::new(&env, "review"),
+        &100,
+        &String::from_str(&env, "invoice-a"),
+        &3,
+    );
+    let changed_value = client.record_signal_authorized(
+        &first_submitter,
+        &1,
+        &Symbol::new(&env, "payment"),
+        &101,
+        &String::from_str(&env, "invoice-a"),
+        &4,
+    );
+    let changed_context = client.record_signal_authorized(
+        &first_submitter,
+        &1,
+        &Symbol::new(&env, "payment"),
+        &100,
+        &String::from_str(&env, "invoice-b"),
+        &5,
+    );
+    let changed_submitter = client.record_signal_authorized(
+        &second_submitter,
+        &1,
+        &Symbol::new(&env, "payment"),
+        &100,
+        &String::from_str(&env, "invoice-a"),
+        &1,
+    );
+
+    assert_eq!(first.accepted, true);
+    assert_eq!(changed_business.accepted, true);
+    assert_eq!(changed_type.accepted, true);
+    assert_eq!(changed_value.accepted, true);
+    assert_eq!(changed_context.accepted, true);
+    assert_eq!(changed_submitter.accepted, true);
+    assert_eq!(client.count_signals_for_business(&1), 5);
+    assert_eq!(client.count_signals_for_business(&2), 1);
+}
+
+#[test]
+#[should_panic(expected = "stale signal nonce")]
+fn test_stale_nonce_cannot_create_a_second_identity() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let submitter = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+
+    client.record_signal_authorized(
+        &submitter,
+        &1,
+        &Symbol::new(&env, "payment"),
+        &100,
+        &String::from_str(&env, "first"),
+        &4,
+    );
+    client.record_signal_authorized(
+        &submitter,
+        &1,
+        &Symbol::new(&env, "payment"),
+        &101,
+        &String::from_str(&env, "different"),
+        &3,
+    );
+}
+
+#[test]
+#[should_panic(expected = "signal context exceeds maximum")]
+fn test_invalid_context_fails_before_nonce_consumption() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let submitter = soroban_sdk::Address::generate(&env);
+    let oversized = std::string::String::from("x").repeat(257);
+    env.mock_all_auths();
+    client.record_signal_authorized(
+        &submitter,
+        &1,
+        &Symbol::new(&env, "payment"),
+        &100,
+        &String::from_str(&env, &oversized),
+        &1,
+    );
+}
+
+#[test]
+fn test_failed_validation_does_not_consume_retry_nonce() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let submitter = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    let oversized = std::string::String::from("x").repeat(257);
+    let invalid = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.record_signal_authorized(
+            &submitter,
+            &1,
+            &Symbol::new(&env, "payment"),
+            &100,
+            &String::from_str(&env, &oversized),
+            &1,
+        );
+    }));
+    assert!(invalid.is_err());
+    assert_eq!(client.latest_signal_nonce(&submitter), None);
+    let accepted = client.record_signal_authorized(
+        &submitter,
+        &1,
+        &Symbol::new(&env, "payment"),
+        &100,
+        &String::from_str(&env, "valid"),
+        &1,
+    );
+    assert_eq!(accepted.accepted, true);
+    assert_eq!(client.latest_signal_nonce(&submitter), Some(1));
+}
+
+#[test]
+fn test_replay_map_reports_exact_identity_only() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let submitter = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+    let identity = SignalIdentity {
+        business_id: 4,
+        signal_type: Symbol::new(&env, "payment"),
+        value: 8,
+        context: String::from_str(&env, "ctx"),
+        submitter: submitter.clone(),
+        nonce: 2,
+    };
+    assert_eq!(client.is_signal_replayed(&identity), false);
+    client.record_signal_authorized(
+        &submitter,
+        &4,
+        &Symbol::new(&env, "payment"),
+        &8,
+        &String::from_str(&env, "ctx"),
+        &2,
+    );
+    assert_eq!(client.is_signal_replayed(&identity), true);
+}
+
+#[test]
+fn test_many_unique_identities_have_unique_observations() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let submitter = soroban_sdk::Address::generate(&env);
+    env.mock_all_auths();
+
+    for nonce in 1..=20 {
+        let accepted = client.record_signal_authorized(
+            &submitter,
+            &9,
+            &Symbol::new(&env, "payment"),
+            &(nonce as i128),
+            &String::from_str(&env, "batch"),
+            &nonce,
+        );
+        assert_eq!(accepted.accepted, true);
+    }
+    assert_eq!(client.count_signals_for_business(&9), 20);
+    for nonce in 1..=20 {
+        let duplicate = client.record_signal_authorized(
+            &submitter,
+            &9,
+            &Symbol::new(&env, "payment"),
+            &(nonce as i128),
+            &String::from_str(&env, "batch"),
+            &nonce,
+        );
+        assert_eq!(duplicate.duplicate, true);
+        assert_eq!(duplicate.signal_count, 20);
+    }
 }
 
 #[test]
