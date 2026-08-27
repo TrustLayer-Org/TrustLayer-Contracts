@@ -39,6 +39,18 @@ pub struct BusinessProfile {
     pub active: bool,
 }
 
+/// Versioned on-chain representation of a business profile.
+///
+/// Profile fields deliberately live in one value so a profile update is one
+/// storage mutation. The version is kept next to the value to make future
+/// schema changes explicit instead of silently decoding incompatible data.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VersionedBusinessProfile {
+    pub version: u32,
+    pub profile: BusinessProfile,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BusinessStats {
@@ -54,6 +66,89 @@ pub struct TierSummary {
     pub tier: u32,
     pub business_count: u32,
     pub business_ids: Vec<u32>,
+}
+
+const PROFILE_STORAGE_VERSION: u32 = 1;
+
+fn profile_storage_key(env: &Env) -> Symbol {
+    Symbol::new(env, "profile")
+}
+
+fn read_versioned_profile(env: &Env, business_id: u32) -> Option<VersionedBusinessProfile> {
+    let profiles: Map<u32, VersionedBusinessProfile> = env
+        .storage()
+        .persistent()
+        .get(&profile_storage_key(env))
+        .unwrap_or_else(|| Map::new(env));
+    profiles.get(business_id)
+}
+
+fn read_legacy_profile(env: &Env, business_id: u32) -> BusinessProfile {
+    let category_key = Symbol::new(env, "category");
+    let categories: Map<u32, Symbol> = env
+        .storage()
+        .persistent()
+        .get(&category_key)
+        .unwrap_or_else(|| Map::new(env));
+    let category = categories
+        .get(business_id)
+        .unwrap_or_else(|| Symbol::new(env, "none"));
+
+    let tier_key = Symbol::new(env, "tier");
+    let tiers: Map<u32, u32> = env
+        .storage()
+        .persistent()
+        .get(&tier_key)
+        .unwrap_or_else(|| Map::new(env));
+    let tier = tiers.get(business_id).unwrap_or(0);
+
+    let active_key = Symbol::new(env, "active");
+    let active_values: Map<u32, bool> = env
+        .storage()
+        .persistent()
+        .get(&active_key)
+        .unwrap_or_else(|| Map::new(env));
+    let active = active_values.get(business_id).unwrap_or(true);
+
+    BusinessProfile {
+        business_id,
+        category,
+        tier,
+        active,
+    }
+}
+
+fn read_profile(env: &Env, business_id: u32) -> BusinessProfile {
+    if let Some(record) = read_versioned_profile(env, business_id) {
+        assert_eq!(
+            record.version, PROFILE_STORAGE_VERSION,
+            "unsupported profile storage version"
+        );
+        return record.profile;
+    }
+
+    // Existing deployments use the three legacy maps. Reading them remains a
+    // compatibility path until the next profile mutation writes the unified
+    // record, preserving all values without requiring a bulk migration.
+    read_legacy_profile(env, business_id)
+}
+
+fn write_profile(env: &Env, profile: BusinessProfile) {
+    let mut profiles: Map<u32, VersionedBusinessProfile> = env
+        .storage()
+        .persistent()
+        .get(&profile_storage_key(env))
+        .unwrap_or_else(|| Map::new(env));
+    profiles.set(
+        profile.business_id,
+        VersionedBusinessProfile {
+            version: PROFILE_STORAGE_VERSION,
+            profile,
+        },
+    );
+    env.storage()
+        .persistent()
+        .set(&profile_storage_key(env), &profiles);
 }
 
 #[contract]
@@ -162,85 +257,45 @@ impl TrustLayerContract {
 
     /// Set the business category for a business profile.
     pub fn set_category(env: Env, business_id: u32, category: Symbol) {
-        let key = Symbol::new(&env, "category");
-        let mut categories: Map<u32, Symbol> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(&env));
-        categories.set(business_id, category);
-        env.storage().persistent().set(&key, &categories);
+        let mut profile = read_profile(&env, business_id);
+        profile.category = category;
+        write_profile(&env, profile);
     }
 
     /// Get the business category, defaulting to "none" when unset.
     pub fn get_category(env: Env, business_id: u32) -> Symbol {
-        let key = Symbol::new(&env, "category");
-        let categories: Map<u32, Symbol> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(&env));
-        categories
-            .get(business_id)
-            .unwrap_or_else(|| Symbol::new(&env, "none"))
+        read_profile(&env, business_id).category
     }
 
     /// Set the verification tier for a business.
     pub fn set_verification_tier(env: Env, business_id: u32, tier: u32) {
-        let key = Symbol::new(&env, "tier");
-        let mut tiers: Map<u32, u32> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(&env));
-        tiers.set(business_id, tier);
-        env.storage().persistent().set(&key, &tiers);
+        let mut profile = read_profile(&env, business_id);
+        profile.tier = tier;
+        write_profile(&env, profile);
     }
 
     /// Get the verification tier for a business, defaulting to 0.
     pub fn get_verification_tier(env: Env, business_id: u32) -> u32 {
-        let key = Symbol::new(&env, "tier");
-        let tiers: Map<u32, u32> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(&env));
-        tiers.get(business_id).unwrap_or(0)
+        read_profile(&env, business_id).tier
     }
 
     /// Deactivate a business, marking it inactive in the profile store.
     pub fn deactivate_business(env: Env, business_id: u32) {
-        let key = Symbol::new(&env, "active");
-        let mut active: Map<u32, bool> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(&env));
-        active.set(business_id, false);
-        env.storage().persistent().set(&key, &active);
+        let mut profile = read_profile(&env, business_id);
+        profile.active = false;
+        write_profile(&env, profile);
     }
 
     /// Reactivate a business, marking it active in the profile store.
     pub fn reactivate_business(env: Env, business_id: u32) {
-        let key = Symbol::new(&env, "active");
-        let mut active: Map<u32, bool> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(&env));
-        active.set(business_id, true);
-        env.storage().persistent().set(&key, &active);
+        let mut profile = read_profile(&env, business_id);
+        profile.active = true;
+        write_profile(&env, profile);
     }
 
     /// Report whether a business is active, defaulting to true.
     pub fn is_active(env: Env, business_id: u32) -> bool {
-        let key = Symbol::new(&env, "active");
-        let active: Map<u32, bool> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(&env));
-        active.get(business_id).unwrap_or(true)
+        read_profile(&env, business_id).active
     }
 
     /// Get a registered business by id, or None when out of range.
@@ -288,15 +343,7 @@ impl TrustLayerContract {
 
     /// Aggregate category, tier, and active status into a profile view.
     pub fn get_profile(env: Env, business_id: u32) -> BusinessProfile {
-        let category = Self::get_category(env.clone(), business_id);
-        let tier = Self::get_verification_tier(env.clone(), business_id);
-        let active = Self::is_active(env, business_id);
-        BusinessProfile {
-            business_id,
-            category,
-            tier,
-            active,
-        }
+        read_profile(&env, business_id)
     }
 
     /// Report whether a business has a verification tier of at least one.
@@ -321,13 +368,15 @@ impl TrustLayerContract {
 
     /// Set category, tier, and active status for a business in a single call.
     pub fn set_profile(env: Env, business_id: u32, category: Symbol, tier: u32, active: bool) {
-        Self::set_category(env.clone(), business_id, category);
-        Self::set_verification_tier(env.clone(), business_id, tier);
-        if active {
-            Self::reactivate_business(env, business_id);
-        } else {
-            Self::deactivate_business(env, business_id);
-        }
+        write_profile(
+            &env,
+            BusinessProfile {
+                business_id,
+                category,
+                tier,
+                active,
+            },
+        );
     }
 
     /// Count registered businesses that are currently active.

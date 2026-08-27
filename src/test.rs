@@ -1,7 +1,38 @@
 #![cfg(test)]
 
+extern crate std;
+
 use super::*;
-use soroban_sdk::{Env, String, Symbol};
+use soroban_sdk::{contract, contractimpl, Env, Map, String, Symbol};
+
+#[contract]
+struct ProfileFailureHarness;
+
+#[contractimpl]
+impl ProfileFailureHarness {
+    pub fn fail_after_profile_write(
+        env: Env,
+        business_id: u32,
+        category: Symbol,
+        tier: u32,
+        active: bool,
+    ) {
+        super::write_profile(
+            &env,
+            BusinessProfile {
+                business_id,
+                category,
+                tier,
+                active,
+            },
+        );
+        panic!("injected profile write failure");
+    }
+
+    pub fn get_profile(env: Env, business_id: u32) -> BusinessProfile {
+        super::read_profile(&env, business_id)
+    }
+}
 
 #[test]
 fn test_register_business() {
@@ -767,6 +798,196 @@ fn test_get_tier_summary_aggregates_count_and_ids() {
 }
 
 #[test]
+fn test_set_profile_writes_one_versioned_record() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_profile(&7, &Symbol::new(&env, "logistics"), &3, &false);
+
+    let stored: Map<u32, VersionedBusinessProfile> = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&profile_storage_key(&env))
+            .unwrap()
+    });
+    assert_eq!(
+        stored.get(7),
+        Some(VersionedBusinessProfile {
+            version: PROFILE_STORAGE_VERSION,
+            profile: BusinessProfile {
+                business_id: 7,
+                category: Symbol::new(&env, "logistics"),
+                tier: 3,
+                active: false,
+            },
+        })
+    );
+}
+
+#[test]
+fn test_profile_readers_have_field_level_parity() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_profile(&4, &Symbol::new(&env, "fintech"), &6, &true);
+    let profile = client.get_profile(&4);
+
+    assert_eq!(profile.category, client.get_category(&4));
+    assert_eq!(profile.tier, client.get_verification_tier(&4));
+    assert_eq!(profile.active, client.is_active(&4));
+}
+
+#[test]
+fn test_legacy_profile_is_read_without_data_loss() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        let mut categories: Map<u32, Symbol> = Map::new(&env);
+        categories.set(11, Symbol::new(&env, "retail"));
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "category"), &categories);
+
+        let mut tiers: Map<u32, u32> = Map::new(&env);
+        tiers.set(11, 5);
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "tier"), &tiers);
+
+        let mut active: Map<u32, bool> = Map::new(&env);
+        active.set(11, false);
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "active"), &active);
+    });
+
+    assert_eq!(
+        client.get_profile(&11),
+        BusinessProfile {
+            business_id: 11,
+            category: Symbol::new(&env, "retail"),
+            tier: 5,
+            active: false,
+        }
+    );
+    assert_eq!(client.get_category(&11), Symbol::new(&env, "retail"));
+    assert_eq!(client.get_verification_tier(&11), 5);
+    assert!(!client.is_active(&11));
+}
+
+#[test]
+fn test_legacy_profile_is_migrated_on_next_mutation() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        let mut categories: Map<u32, Symbol> = Map::new(&env);
+        categories.set(12, Symbol::new(&env, "health"));
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "category"), &categories);
+
+        let mut tiers: Map<u32, u32> = Map::new(&env);
+        tiers.set(12, 2);
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "tier"), &tiers);
+
+        let mut active: Map<u32, bool> = Map::new(&env);
+        active.set(12, false);
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "active"), &active);
+    });
+
+    client.set_category(&12, &Symbol::new(&env, "insurance"));
+
+    let stored: Map<u32, VersionedBusinessProfile> = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&profile_storage_key(&env))
+            .unwrap()
+    });
+    assert_eq!(
+        stored.get(12),
+        Some(VersionedBusinessProfile {
+            version: PROFILE_STORAGE_VERSION,
+            profile: BusinessProfile {
+                business_id: 12,
+                category: Symbol::new(&env, "insurance"),
+                tier: 2,
+                active: false,
+            },
+        })
+    );
+}
+
+#[test]
+fn test_partial_profile_write_is_rolled_back_on_failure() {
+    let env = Env::default();
+    let contract_id = env.register(ProfileFailureHarness, ());
+    let client = ProfileFailureHarnessClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        super::write_profile(
+            &env,
+            BusinessProfile {
+                business_id: 3,
+                category: Symbol::new(&env, "original"),
+                tier: 1,
+                active: true,
+            },
+        );
+    });
+    let result =
+        client.try_fail_after_profile_write(&3, &Symbol::new(&env, "uncommitted"), &99, &false);
+    assert!(result.is_err());
+    assert_eq!(
+        client.get_profile(&3),
+        BusinessProfile {
+            business_id: 3,
+            category: Symbol::new(&env, "original"),
+            tier: 1,
+            active: true,
+        }
+    );
+}
+
+#[test]
+#[should_panic(expected = "unsupported profile storage version")]
+fn test_unsupported_profile_version_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        let mut profiles: Map<u32, VersionedBusinessProfile> = Map::new(&env);
+        profiles.set(
+            8,
+            VersionedBusinessProfile {
+                version: PROFILE_STORAGE_VERSION + 1,
+                profile: BusinessProfile {
+                    business_id: 8,
+                    category: Symbol::new(&env, "future"),
+                    tier: 7,
+                    active: true,
+                },
+            },
+        );
+        env.storage()
+            .persistent()
+            .set(&profile_storage_key(&env), &profiles);
+    });
+
+    client.get_profile(&8);
+}
+
+#[test]
 fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
@@ -776,4 +997,117 @@ fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
     assert_eq!(summary.tier, 5);
     assert_eq!(summary.business_count, 0);
     assert_eq!(summary.business_ids.len(), 0);
+}
+
+#[test]
+fn test_individual_profile_mutations_preserve_unmodified_fields() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_profile(&13, &Symbol::new(&env, "original"), &4, &false);
+    client.set_category(&13, &Symbol::new(&env, "updated"));
+    assert_eq!(
+        client.get_profile(&13),
+        BusinessProfile {
+            business_id: 13,
+            category: Symbol::new(&env, "updated"),
+            tier: 4,
+            active: false,
+        }
+    );
+
+    client.set_verification_tier(&13, &8);
+    assert_eq!(
+        client.get_profile(&13),
+        BusinessProfile {
+            business_id: 13,
+            category: Symbol::new(&env, "updated"),
+            tier: 8,
+            active: false,
+        }
+    );
+
+    client.reactivate_business(&13);
+    assert_eq!(
+        client.get_profile(&13),
+        BusinessProfile {
+            business_id: 13,
+            category: Symbol::new(&env, "updated"),
+            tier: 8,
+            active: true,
+        }
+    );
+}
+
+#[test]
+fn test_legacy_profile_defaults_missing_fields_without_overwriting_values() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    env.as_contract(&contract_id, || {
+        let mut categories: Map<u32, Symbol> = Map::new(&env);
+        categories.set(14, Symbol::new(&env, "services"));
+        env.storage()
+            .persistent()
+            .set(&Symbol::new(&env, "category"), &categories);
+    });
+
+    assert_eq!(
+        client.get_profile(&14),
+        BusinessProfile {
+            business_id: 14,
+            category: Symbol::new(&env, "services"),
+            tier: 0,
+            active: true,
+        }
+    );
+}
+
+#[test]
+fn test_current_profile_version_is_read_as_is() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let expected = BusinessProfile {
+        business_id: 15,
+        category: Symbol::new(&env, "technology"),
+        tier: 9,
+        active: false,
+    };
+
+    env.as_contract(&contract_id, || {
+        let mut profiles: Map<u32, VersionedBusinessProfile> = Map::new(&env);
+        profiles.set(
+            expected.business_id,
+            VersionedBusinessProfile {
+                version: PROFILE_STORAGE_VERSION,
+                profile: expected.clone(),
+            },
+        );
+        env.storage()
+            .persistent()
+            .set(&profile_storage_key(&env), &profiles);
+    });
+
+    assert_eq!(client.get_profile(&15), expected);
+}
+
+#[test]
+fn test_profile_records_are_isolated_by_business_id() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.set_profile(&16, &Symbol::new(&env, "one"), &1, &true);
+    client.set_profile(&17, &Symbol::new(&env, "two"), &2, &false);
+    client.set_category(&16, &Symbol::new(&env, "one_updated"));
+
+    assert_eq!(client.get_category(&16), Symbol::new(&env, "one_updated"));
+    assert_eq!(client.get_verification_tier(&16), 1);
+    assert!(client.is_active(&16));
+    assert_eq!(client.get_category(&17), Symbol::new(&env, "two"));
+    assert_eq!(client.get_verification_tier(&17), 2);
+    assert!(!client.is_active(&17));
 }

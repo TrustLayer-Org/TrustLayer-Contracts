@@ -48,9 +48,26 @@ Beyond scoring, the contract stores lightweight profile metadata per business:
 - `bump_tier` / `downgrade_tier` – adjust the tier by one
 - `deactivate_business` / `reactivate_business` / `is_active` – active status
 - `is_verified` / `is_active_and_verified` / `meets_tier` – status checks
-- `set_profile` / `get_profile` – set or read the full `BusinessProfile`
+- `set_profile` / `get_profile` – set or read the full `BusinessProfile`; profile
+  fields are stored together in a versioned record
 - `register_verified_business` – register and set a tier in one call
 - `get_business` / `count_businesses` / `count_active_businesses` – registry queries
+
+### Profile storage compatibility
+
+Profile records use storage version `1` and contain the category, verification
+tier, active flag, and business id in one value. `set_profile` and all
+individual profile mutations write that value in one storage operation. This
+means a failed invocation cannot expose a profile with only some fields
+updated; Soroban rolls the storage mutation back with the transaction.
+
+Deployments using the original `category`, `tier`, and `active` maps remain
+readable. The contract reconstructs a profile from those maps when no
+versioned record exists, and the next profile mutation lazily migrates the
+complete value to version `1` without dropping legacy data. A record with an
+unknown version is rejected so a future schema cannot be misread as the
+current one. A future migration must explicitly translate each supported
+version and can be rolled back before removing the legacy compatibility path.
 
 ## Business Signal Stats API
 
