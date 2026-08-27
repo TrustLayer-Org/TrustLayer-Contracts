@@ -67,6 +67,12 @@ Inactive businesses retain readable history, but signal and score mutations
 are rejected before storage changes. Reactivation restores those mutations
 without erasing history. Directory tier and category queries include active
 businesses only, so counts and indexes follow the same lifecycle rule.
+
+## Profile storage compatibility
+
+Profiles use storage version `1` and store category, tier, active state, and
+business id together. Legacy category/tier/active maps remain readable and are
+lazily migrated on the next profile mutation; unknown versions fail closed.
 - `get_business_by_wallet` / `is_wallet_registered` – canonical-wallet lookup backed by a duplicate-safe index
 
 ### Registration integrity
