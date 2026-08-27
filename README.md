@@ -55,39 +55,22 @@ Beyond scoring, the contract stores lightweight profile metadata per business:
 ## Authorization model
 
 The contract has one immutable authority address. A deployment must call
-`initialize(authority)` once before using any state-changing entrypoint. The
-authority signs initialization and is then stored in persistent contract
-storage. A second initialization attempt fails and cannot replace the stored
-address.
+`initialize(authority)` once before using state-changing entrypoints. Every
+mutating method accepts that authority as its caller and verifies both address
+equality and `Address::require_auth()` before touching storage. Read-only
+methods remain permissionless. Initialization and authorization failures use
+stable contract errors, and authority replacement is intentionally unsupported.
+- `get_business_by_wallet` / `is_wallet_registered` – canonical-wallet lookup backed by a duplicate-safe index
 
-Every mutating method takes the authority address as its first argument and
-performs both checks before touching mutable state:
+### Registration integrity
 
-- the supplied address equals the stored authority;
-- the supplied address authenticates the current invocation with
-  `Address::require_auth()`.
-
-This applies to business registration, signal recording, score updates,
-category/tier/active-state updates, composite profile updates, and tier
-adjustments. `get_authority` and all other read-only methods remain
-permissionless so clients can inspect state without an administrative
-signature.
-
-Calls made before initialization return the stable `NotInitialized` contract
-error. Calls made with a different address return `Unauthorized`; these checks
-run before any storage mutation. Authentication failures are handled by the
-Soroban authorization layer and therefore do not expose implementation
-details. There is intentionally no authority replacement entrypoint in this
-version. A future migration must introduce an explicitly governed handover
-flow rather than weakening this invariant.
-
-Existing deployed instances must be initialized through the deployment
-process before their first state-changing call. This is a compatibility
-requirement because mutators now require an explicit caller argument; read
-methods and storage key layouts are unchanged. If a deployment cannot
-complete initialization, the safe rollback is to leave the instance paused
-for writes and deploy a version with a reviewed migration plan. Do not write
-an arbitrary authority into an existing instance.
+New registrations require a non-empty company name of at most 128 bytes and a
+canonical wallet identifier: an uppercase `G` followed by uppercase letters or
+digits, with a maximum length of 56 bytes. Wallet identity is unique across the
+registry, so registering the same wallet twice fails before the business list or
+index is changed. The lookup index is initialized lazily to keep businesses
+written by older contract versions readable; malformed legacy wallet strings
+are returned by id but are not used as new canonical identities.
 
 ## Business Signal Stats API
 
@@ -98,6 +81,39 @@ Lightweight aggregates over a business's recorded signals, without recomputing a
 - `average_signal_value` – mean raw signal value (zero when there are none)
 - `signal_type_count` – how many signals of a given type a business has
 - `get_business_stats` – aggregate count, average, and presence into a `BusinessStats` view
+
+### Signal schema
+
+`record_signal` validates inputs against schema version `1` before constructing
+or writing a `SignalRecord`. The schema is available to clients through
+`get_signal_schema()` and currently accepts these deterministic symbols:
+
+- `payment`
+- `review`
+- `delivery`
+- `compliance`
+- `dispute`
+
+Signal symbols may be at most 16 characters. Values are inclusive from
+`0` through `1_000_000`; negative observations are rejected by the score
+policy while unbounded `i128` values are rejected. Empty, unknown, and
+oversized symbols return stable typed contract errors. Validation runs before
+the signal vector is read or written; a rejected signal therefore cannot
+change counts, scores, or other persisted state.
+
+The schema version and bounds are returned as contract data rather than being
+implicit in client code. Future extensions should publish a new version and
+document how clients and stored records coexist. Existing accepted symbols
+and values retain their meaning in version 1. A migration that changes the
+allowed set or range must be deployed as an explicit compatibility decision;
+rollback is safe because failed validation performs no writes.
+Trust scores use one checked computation shared by update, verification, and
+statistics views. Ordinary signals have weight one; callers that need explicit
+weighting can use `record_weighted_signal`. Values must be non-negative and
+weights must be positive. Totals, weighted products, denominators, and division
+are checked, and non-negative averages use nearest-integer rounding with ties
+rounded upward. This policy makes negative signals and arithmetic overflow
+explicit rather than allowing intermediate values to influence a final clamp.
 
 ## Verification Tier Registry API
 

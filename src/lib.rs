@@ -2,23 +2,52 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map,
-    String, Symbol, Vec,
+    String, Symbol, SymbolStr, TryFromVal, Vec,
 };
 
-/// Stable failures for the contract's one-time authority and authorization model.
+const AUTHORITY_KEY: &str = "authority";
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
-    /// A state-changing call was made before `initialize`.
-    NotInitialized = 1,
-    /// Initialization was attempted after an authority had already been stored.
-    AlreadyInitialized = 2,
-    /// The supplied caller is not the stored authority.
-    Unauthorized = 3,
+    NotInitialized = 10,
+    AlreadyInitialized = 11,
+    Unauthorized = 12,
 }
 
-const AUTHORITY_KEY: &str = "authority";
+/// Stable validation failures for the versioned signal schema.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum SignalError {
+    /// The signal symbol is empty or is not in the supported schema.
+    UnsupportedSignalType = 1,
+    /// The symbol exceeds the schema's bounded metadata length.
+    SignalTypeTooLong = 2,
+    /// The signal value is outside the inclusive schema range.
+    SignalValueOutOfBounds = 3,
+}
+
+/// Versioned schema metadata exposed to off-chain clients.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignalSchema {
+    pub version: u32,
+    pub min_value: i128,
+    pub max_value: i128,
+    pub max_type_len: u32,
+    pub allowed_types: Vec<Symbol>,
+}
+
+const SIGNAL_SCHEMA_VERSION: u32 = 1;
+const SIGNAL_MIN_VALUE: i128 = 0;
+const SIGNAL_MAX_VALUE: i128 = 1_000_000;
+const SIGNAL_MAX_TYPE_LEN: u32 = 16;
+
+const MAX_WALLET_LENGTH: usize = 56;
+const MAX_COMPANY_NAME_LENGTH: usize = 128;
+const IDENTITY_INDEX_READY: &str = "identity_index_ready";
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,6 +68,15 @@ pub struct TrustSignal {
 pub struct SignalRecord {
     pub business_id: u32,
     pub signal: TrustSignal,
+}
+
+/// A signal with an explicit positive integer weight.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WeightedSignalRecord {
+    pub business_id: u32,
+    pub signal: TrustSignal,
+    pub weight: i128,
 }
 
 #[contracttype]
@@ -79,11 +117,6 @@ pub struct TrustLayerContract;
 
 #[contractimpl]
 impl TrustLayerContract {
-    /// Establish the contract authority exactly once.
-    ///
-    /// The authority signs this call, so a third party cannot initialize the
-    /// contract on someone else's behalf. Once stored, the authority is
-    /// immutable; changing it requires a separately governed migration.
     pub fn initialize(env: Env, authority: Address) {
         let key = Symbol::new(&env, AUTHORITY_KEY);
         if env.storage().persistent().has(&key) {
@@ -93,18 +126,15 @@ impl TrustLayerContract {
         env.storage().persistent().set(&key, &authority);
     }
 
-    /// Return the configured authority without requiring authorization.
     pub fn get_authority(env: Env) -> Option<Address> {
-        let key = Symbol::new(&env, AUTHORITY_KEY);
-        env.storage().persistent().get(&key)
+        env.storage().persistent().get(&Symbol::new(&env, AUTHORITY_KEY))
     }
 
     fn require_authority(env: &Env, caller: &Address) {
-        let key = Symbol::new(env, AUTHORITY_KEY);
         let authority: Address = env
             .storage()
             .persistent()
-            .get(&key)
+            .get(&Symbol::new(env, AUTHORITY_KEY))
             .unwrap_or_else(|| panic_with_error!(env, Error::NotInitialized));
         if authority != *caller {
             panic_with_error!(env, Error::Unauthorized);
@@ -112,65 +142,232 @@ impl TrustLayerContract {
         caller.require_auth();
     }
 
-    fn register_business_unchecked(env: &Env, wallet: String, company_name: String) -> u32 {
+    fn supported_signal_types(env: &Env) -> Vec<Symbol> {
+        let mut types = Vec::new(env);
+        types.push_back(Symbol::new(env, "payment"));
+        types.push_back(Symbol::new(env, "review"));
+        types.push_back(Symbol::new(env, "delivery"));
+        types.push_back(Symbol::new(env, "compliance"));
+        types.push_back(Symbol::new(env, "dispute"));
+        types
+    }
+
+    fn validate_signal(env: &Env, signal_type: &Symbol, value: i128) {
+        let signal_text = SymbolStr::try_from_val(env, &signal_type.to_symbol_val()).unwrap();
+        if signal_text.len() > SIGNAL_MAX_TYPE_LEN as usize {
+            panic_with_error!(env, SignalError::SignalTypeTooLong);
+        }
+        let supported = Self::supported_signal_types(env);
+        if signal_text.is_empty() || !supported.contains(signal_type) {
+            panic_with_error!(env, SignalError::UnsupportedSignalType);
+        }
+        if !(SIGNAL_MIN_VALUE..=SIGNAL_MAX_VALUE).contains(&value) {
+            panic_with_error!(env, SignalError::SignalValueOutOfBounds);
+        }
+    }
+
+    /// Return the deterministic signal schema used by `record_signal`.
+    pub fn get_signal_schema(env: Env) -> SignalSchema {
+        SignalSchema {
+            version: SIGNAL_SCHEMA_VERSION,
+            min_value: SIGNAL_MIN_VALUE,
+            max_value: SIGNAL_MAX_VALUE,
+            max_type_len: SIGNAL_MAX_TYPE_LEN,
+            allowed_types: Self::supported_signal_types(&env),
+        }
+    }
+
+    /// Validate the canonical wallet representation used by new registrations.
+    ///
+    /// Stellar account identifiers are represented as an uppercase `G` followed
+    /// by one to 55 uppercase alphanumeric characters.  The contract keeps the
+    /// representation as a String for backwards compatibility with the
+    /// original API, but validates its byte-level shape before persisting it.
+    fn validate_wallet(wallet: &String) {
+        let length = wallet.len() as usize;
+        if !(2..=MAX_WALLET_LENGTH).contains(&length) {
+            panic!("invalid business wallet length");
+        }
+
+        let mut bytes = [0u8; MAX_WALLET_LENGTH];
+        wallet.copy_into_slice(&mut bytes[..length]);
+        if bytes[0] != b'G' {
+            panic!("business wallet must start with G");
+        }
+        for byte in &bytes[1..length] {
+            if !((*byte >= b'A' && *byte <= b'Z') || (*byte >= b'0' && *byte <= b'9')) {
+                panic!("business wallet contains a non-canonical character");
+            }
+        }
+    }
+
+    /// Validate the bounded business name without changing legacy records.
+    fn validate_company_name(company_name: &String) {
+        let length = company_name.len() as usize;
+        if length == 0 || length > MAX_COMPANY_NAME_LENGTH {
+            panic!("invalid company name length");
+        }
+    }
+
+    fn identity_index_key(env: &Env) -> Symbol {
+        Symbol::new(env, "identity_index")
+    }
+
+    fn identity_index_ready_key(env: &Env) -> Symbol {
+        Symbol::new(env, IDENTITY_INDEX_READY)
+    }
+
+    /// Build the new wallet index once so records written by older versions
+    /// remain readable.  Invalid legacy values are deliberately left alone;
+    /// they can still be returned by `get_business`, but cannot collide with a
+    /// new canonical registration.
+    fn ensure_identity_index(env: &Env) -> Map<String, u32> {
+        let ready_key = Self::identity_index_ready_key(env);
+        if let Some(index) = env
+            .storage()
+            .persistent()
+            .get(&Self::identity_index_key(env))
+        {
+            if env
+                .storage()
+                .persistent()
+                .get::<_, bool>(&ready_key)
+                .unwrap_or(false)
+            {
+                return index;
+            }
+        }
+
+        let businesses_key = Symbol::new(env, "business");
+        let businesses: Vec<Business> = env
+            .storage()
+            .persistent()
+            .get(&businesses_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let mut index: Map<String, u32> = Map::new(env);
+        for id in 0..businesses.len() {
+            let business = businesses.get(id).unwrap();
+            if business.wallet.len() >= 2 && business.wallet.len() as usize <= MAX_WALLET_LENGTH {
+                // Existing deployments may contain values that predate strict
+                // validation.  Only index values that pass the same policy.
+                let length = business.wallet.len() as usize;
+                let mut bytes = [0u8; MAX_WALLET_LENGTH];
+                business.wallet.copy_into_slice(&mut bytes[..length]);
+                let valid = bytes[0] == b'G'
+                    && bytes[1..length].iter().all(|byte| {
+                        (*byte >= b'A' && *byte <= b'Z') || (*byte >= b'0' && *byte <= b'9')
+                    });
+                if valid && index.get(business.wallet.clone()).is_none() {
+                    index.set(business.wallet, id);
+                }
+            }
+        }
+        env.storage()
+            .persistent()
+            .set(&Self::identity_index_key(env), &index);
+        env.storage().persistent().set(&ready_key, &true);
+        index
+    }
+
+    fn checked_add(left: i128, right: i128) -> i128 {
+        left.checked_add(right)
+            .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+    }
+
+    fn checked_mul(left: i128, right: i128) -> i128 {
+        left.checked_mul(right)
+            .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+    }
+
+    fn checked_div(numerator: i128, denominator: i128) -> i128 {
+        numerator
+            .checked_div(denominator)
+            .unwrap_or_else(|| panic!("trust score division failed"))
+    }
+
+    /// Round non-negative division to the nearest integer, breaking ties up.
+    fn rounded_average(total: i128, weight: i128) -> i128 {
+        if weight == 0 {
+            return 0;
+        }
+        let quotient = Self::checked_div(total, weight);
+        let remainder = total % weight;
+        let doubled_remainder = Self::checked_mul(remainder, 2);
+        if doubled_remainder >= weight {
+            quotient
+                .checked_add(1)
+                .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+        } else {
+            quotient
+        }
+    }
+
+    /// Compute the one score used by update, verification, and statistics.
+    /// Ordinary signals have weight one; weighted records use their explicit
+    /// positive weight. Negative values are rejected at ingestion, and legacy
+    /// negative records are ignored rather than allowing a negative score to
+    /// bypass the non-negative policy.
+    fn compute_score(env: &Env, business_id: u32) -> i128 {
+        let signals_key = Symbol::new(env, "signals");
+        let signals: Vec<SignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&signals_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let weighted_key = Symbol::new(env, "weighted_signals");
+        let weighted: Vec<WeightedSignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&weighted_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let mut total = 0i128;
+        let mut weight = 0i128;
+
+        for i in 0..signals.len() {
+            let record = signals.get(i).unwrap();
+            if record.business_id == business_id && record.signal.value >= 0 {
+                total = Self::checked_add(total, record.signal.value);
+                weight = Self::checked_add(weight, 1);
+            }
+        }
+        for i in 0..weighted.len() {
+            let record = weighted.get(i).unwrap();
+            if record.business_id == business_id && record.signal.value >= 0 {
+                total =
+                    Self::checked_add(total, Self::checked_mul(record.signal.value, record.weight));
+                weight = Self::checked_add(weight, record.weight);
+            }
+        }
+        Self::rounded_average(total, weight)
+    }
+
+    /// Register a business with wallet and company name.
+    pub fn register_business(env: Env, caller: Address, wallet: String, company_name: String) -> u32 {
+        Self::require_authority(&env, &caller);
+        Self::validate_wallet(&wallet);
+        Self::validate_company_name(&company_name);
+        let mut identity_index = Self::ensure_identity_index(&env);
+        if identity_index.get(wallet.clone()).is_some() {
+            panic!("business wallet is already registered");
+        }
         let business = Business {
-            wallet,
-            company_name,
+            wallet: wallet.clone(),
+            company_name: company_name.clone(),
         };
-        let key = Symbol::new(env, "business");
+        let key = Symbol::new(&env, "business");
         let mut businesses: Vec<Business> = env
             .storage()
             .persistent()
             .get(&key)
-            .unwrap_or_else(|| Vec::new(env));
+            .unwrap_or_else(|| Vec::new(&env));
         let id = businesses.len();
         businesses.push_back(business);
         env.storage().persistent().set(&key, &businesses);
+        identity_index.set(wallet, id);
+        env.storage()
+            .persistent()
+            .set(&Self::identity_index_key(&env), &identity_index);
         id
-    }
-
-    fn set_verification_tier_unchecked(env: &Env, business_id: u32, tier: u32) {
-        let key = Symbol::new(env, "tier");
-        let mut tiers: Map<u32, u32> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(env));
-        tiers.set(business_id, tier);
-        env.storage().persistent().set(&key, &tiers);
-    }
-
-    fn set_category_unchecked(env: &Env, business_id: u32, category: Symbol) {
-        let key = Symbol::new(env, "category");
-        let mut categories: Map<u32, Symbol> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(env));
-        categories.set(business_id, category);
-        env.storage().persistent().set(&key, &categories);
-    }
-
-    fn set_active_unchecked(env: &Env, business_id: u32, active_value: bool) {
-        let key = Symbol::new(env, "active");
-        let mut active: Map<u32, bool> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Map::new(env));
-        active.set(business_id, active_value);
-        env.storage().persistent().set(&key, &active);
-    }
-
-    /// Register a business with wallet and company name.
-    pub fn register_business(
-        env: Env,
-        caller: Address,
-        wallet: String,
-        company_name: String,
-    ) -> u32 {
-        Self::require_authority(&env, &caller);
-        Self::register_business_unchecked(&env, wallet, company_name)
     }
 
     /// Record a trust signal for a business.
@@ -182,6 +379,10 @@ impl TrustLayerContract {
         value: i128,
     ) -> bool {
         Self::require_authority(&env, &caller);
+        Self::validate_signal(&env, &signal_type, value);
+        if value < 0 {
+            panic!("negative trust signals are not permitted");
+        }
         let signal = TrustSignal {
             signal_type: signal_type.clone(),
             value,
@@ -201,26 +402,45 @@ impl TrustLayerContract {
         true
     }
 
-    /// Update trust score for a business (computed from signals).
-    pub fn update_trust_score(env: Env, caller: Address, business_id: u32) -> i128 {
+    /// Record a non-negative signal with a checked positive integer weight.
+    pub fn record_weighted_signal(
+        env: Env,
+        caller: Address,
+        business_id: u32,
+        signal_type: Symbol,
+        value: i128,
+        weight: i128,
+    ) -> bool {
         Self::require_authority(&env, &caller);
-        let key = Symbol::new(&env, "signals");
-        let signals: Vec<SignalRecord> = env
+        if value < 0 {
+            panic!("negative trust signals are not permitted");
+        }
+        if weight <= 0 {
+            panic!("trust signal weight must be positive");
+        }
+        // Validate the multiplication before writing the record so an
+        // overflowed contribution cannot leave a partially accepted signal.
+        Self::checked_mul(value, weight);
+        let record = WeightedSignalRecord {
+            business_id,
+            signal: TrustSignal { signal_type, value },
+            weight,
+        };
+        let key = Symbol::new(&env, "weighted_signals");
+        let mut records: Vec<WeightedSignalRecord> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or_else(|| Vec::new(&env));
-        let mut total: i128 = 0;
-        let mut count: i128 = 0;
-        let len = signals.len();
-        for i in 0..len {
-            let record = signals.get(i).unwrap();
-            if record.business_id == business_id {
-                total += record.signal.value;
-                count += 1;
-            }
-        }
-        let score = if count > 0 { total / count } else { 0 };
+        records.push_back(record);
+        env.storage().persistent().set(&key, &records);
+        true
+    }
+
+    /// Update trust score for a business (computed from signals).
+    pub fn update_trust_score(env: Env, caller: Address, business_id: u32) -> i128 {
+        Self::require_authority(&env, &caller);
+        let score = Self::compute_score(&env, business_id);
         let score_key = Symbol::new(&env, "score");
         let mut scores: Vec<ScoreRecord> = env
             .storage()
@@ -246,26 +466,20 @@ impl TrustLayerContract {
 
     /// Verify and return trust score for a business.
     pub fn verify_trust_score(env: Env, business_id: u32) -> i128 {
-        let score_key = Symbol::new(&env, "score");
-        let scores: Vec<ScoreRecord> = env
-            .storage()
-            .persistent()
-            .get(&score_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        let len = scores.len();
-        for i in 0..len {
-            let rec = scores.get(i).unwrap();
-            if rec.business_id == business_id {
-                return rec.score;
-            }
-        }
-        0
+        Self::compute_score(&env, business_id)
     }
 
     /// Set the business category for a business profile.
     pub fn set_category(env: Env, caller: Address, business_id: u32, category: Symbol) {
         Self::require_authority(&env, &caller);
-        Self::set_category_unchecked(&env, business_id, category);
+        let key = Symbol::new(&env, "category");
+        let mut categories: Map<u32, Symbol> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        categories.set(business_id, category);
+        env.storage().persistent().set(&key, &categories);
     }
 
     /// Get the business category, defaulting to "none" when unset.
@@ -284,7 +498,14 @@ impl TrustLayerContract {
     /// Set the verification tier for a business.
     pub fn set_verification_tier(env: Env, caller: Address, business_id: u32, tier: u32) {
         Self::require_authority(&env, &caller);
-        Self::set_verification_tier_unchecked(&env, business_id, tier);
+        let key = Symbol::new(&env, "tier");
+        let mut tiers: Map<u32, u32> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        tiers.set(business_id, tier);
+        env.storage().persistent().set(&key, &tiers);
     }
 
     /// Get the verification tier for a business, defaulting to 0.
@@ -301,13 +522,27 @@ impl TrustLayerContract {
     /// Deactivate a business, marking it inactive in the profile store.
     pub fn deactivate_business(env: Env, caller: Address, business_id: u32) {
         Self::require_authority(&env, &caller);
-        Self::set_active_unchecked(&env, business_id, false);
+        let key = Symbol::new(&env, "active");
+        let mut active: Map<u32, bool> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        active.set(business_id, false);
+        env.storage().persistent().set(&key, &active);
     }
 
     /// Reactivate a business, marking it active in the profile store.
     pub fn reactivate_business(env: Env, caller: Address, business_id: u32) {
         Self::require_authority(&env, &caller);
-        Self::set_active_unchecked(&env, business_id, true);
+        let key = Symbol::new(&env, "active");
+        let mut active: Map<u32, bool> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Map::new(&env));
+        active.set(business_id, true);
+        env.storage().persistent().set(&key, &active);
     }
 
     /// Report whether a business is active, defaulting to true.
@@ -336,6 +571,17 @@ impl TrustLayerContract {
         }
     }
 
+    /// Return the first business registered with a canonical wallet.
+    pub fn get_business_by_wallet(env: Env, wallet: String) -> Option<u32> {
+        Self::validate_wallet(&wallet);
+        Self::ensure_identity_index(&env).get(wallet)
+    }
+
+    /// Report whether a canonical wallet is already present in the registry.
+    pub fn is_wallet_registered(env: Env, wallet: String) -> bool {
+        Self::get_business_by_wallet(env, wallet).is_some()
+    }
+
     /// Count the number of registered businesses.
     pub fn count_businesses(env: Env) -> u32 {
         let key = Symbol::new(&env, "business");
@@ -361,8 +607,8 @@ impl TrustLayerContract {
         tier: u32,
     ) -> u32 {
         Self::require_authority(&env, &caller);
-        let id = Self::register_business_unchecked(&env, wallet, company_name);
-        Self::set_verification_tier_unchecked(&env, id, tier);
+        let id = Self::register_business(env.clone(), caller.clone(), wallet, company_name);
+        Self::set_verification_tier(env, caller, id, tier);
         id
     }
 
@@ -388,7 +634,7 @@ impl TrustLayerContract {
     pub fn bump_tier(env: Env, caller: Address, business_id: u32) -> u32 {
         Self::require_authority(&env, &caller);
         let next = Self::get_verification_tier(env.clone(), business_id) + 1;
-        Self::set_verification_tier_unchecked(&env, business_id, next);
+        Self::set_verification_tier(env, caller, business_id, next);
         next
     }
 
@@ -397,26 +643,21 @@ impl TrustLayerContract {
         Self::require_authority(&env, &caller);
         let current = Self::get_verification_tier(env.clone(), business_id);
         let next = if current > 0 { current - 1 } else { 0 };
-        Self::set_verification_tier_unchecked(&env, business_id, next);
+        Self::set_verification_tier(env, caller, business_id, next);
         next
     }
 
     /// Set category, tier, and active status for a business in a single call.
     pub fn set_profile(
-        env: Env,
-        caller: Address,
-        business_id: u32,
-        category: Symbol,
-        tier: u32,
-        active: bool,
+        env: Env, caller: Address, business_id: u32, category: Symbol, tier: u32, active: bool,
     ) {
         Self::require_authority(&env, &caller);
-        Self::set_category_unchecked(&env, business_id, category);
-        Self::set_verification_tier_unchecked(&env, business_id, tier);
+        Self::set_category(env.clone(), caller.clone(), business_id, category);
+        Self::set_verification_tier(env.clone(), caller.clone(), business_id, tier);
         if active {
-            Self::set_active_unchecked(&env, business_id, true);
+            Self::reactivate_business(env, caller, business_id);
         } else {
-            Self::set_active_unchecked(&env, business_id, false);
+            Self::deactivate_business(env, caller, business_id);
         }
     }
 
@@ -482,27 +723,7 @@ impl TrustLayerContract {
 
     /// Average raw signal value for a business; zero when it has none.
     pub fn average_signal_value(env: Env, business_id: u32) -> i128 {
-        let key = Symbol::new(&env, "signals");
-        let signals: Vec<SignalRecord> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(&env));
-        let mut total: i128 = 0;
-        let mut count: i128 = 0;
-        let len = signals.len();
-        for i in 0..len {
-            let record = signals.get(i).unwrap();
-            if record.business_id == business_id {
-                total += record.signal.value;
-                count += 1;
-            }
-        }
-        if count > 0 {
-            total / count
-        } else {
-            0
-        }
+        Self::compute_score(&env, business_id)
     }
 
     /// Count signals of a specific type recorded for a business.
