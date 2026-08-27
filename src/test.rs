@@ -777,3 +777,94 @@ fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
     assert_eq!(summary.business_count, 0);
     assert_eq!(summary.business_ids.len(), 0);
 }
+
+#[test]
+fn test_weighted_score_uses_checked_weighted_average() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_weighted_signal(&7, &Symbol::new(&env, "payment"), &100, &3);
+    client.record_weighted_signal(&7, &Symbol::new(&env, "review"), &40, &1);
+
+    assert_eq!(client.update_trust_score(&7), 85);
+    assert_eq!(client.verify_trust_score(&7), 85);
+    assert_eq!(client.average_signal_value(&7), 85);
+    assert_eq!(client.get_business_stats(&7).average_value, 85);
+}
+
+#[test]
+fn test_tie_rounding_is_deterministically_upward() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "one"), &1);
+    client.record_signal(&0, &Symbol::new(&env, "two"), &2);
+    assert_eq!(client.update_trust_score(&0), 2);
+}
+
+#[test]
+#[should_panic(expected = "negative trust signals are not permitted")]
+fn test_negative_unweighted_signal_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "negative"), &-1);
+}
+
+#[test]
+#[should_panic(expected = "negative trust signals are not permitted")]
+fn test_negative_weighted_signal_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_weighted_signal(&0, &Symbol::new(&env, "negative"), &-1, &2);
+}
+
+#[test]
+#[should_panic(expected = "trust signal weight must be positive")]
+fn test_zero_weight_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_weighted_signal(&0, &Symbol::new(&env, "zero"), &10, &0);
+}
+
+#[test]
+#[should_panic(expected = "trust score arithmetic overflow")]
+fn test_weighted_multiplication_overflow_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_weighted_signal(&0, &Symbol::new(&env, "large"), &i128::MAX, &2);
+}
+
+#[test]
+#[should_panic(expected = "trust score arithmetic overflow")]
+fn test_score_accumulation_overflow_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "first"), &i128::MAX);
+    client.record_signal(&0, &Symbol::new(&env, "second"), &i128::MAX);
+    client.update_trust_score(&0);
+}
+
+#[test]
+fn test_verify_recomputes_after_new_signal_without_stale_storage() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.record_signal(&0, &Symbol::new(&env, "first"), &10);
+    assert_eq!(client.update_trust_score(&0), 10);
+    client.record_signal(&0, &Symbol::new(&env, "second"), &20);
+    assert_eq!(client.verify_trust_score(&0), 15);
+    assert_eq!(client.get_business_stats(&0).average_value, 15);
+}

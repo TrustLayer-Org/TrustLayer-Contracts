@@ -23,6 +23,15 @@ pub struct SignalRecord {
     pub signal: TrustSignal,
 }
 
+/// A signal with an explicit positive integer weight.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WeightedSignalRecord {
+    pub business_id: u32,
+    pub signal: TrustSignal,
+    pub weight: i128,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScoreRecord {
@@ -61,6 +70,78 @@ pub struct TrustLayerContract;
 
 #[contractimpl]
 impl TrustLayerContract {
+    fn checked_add(left: i128, right: i128) -> i128 {
+        left.checked_add(right)
+            .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+    }
+
+    fn checked_mul(left: i128, right: i128) -> i128 {
+        left.checked_mul(right)
+            .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+    }
+
+    fn checked_div(numerator: i128, denominator: i128) -> i128 {
+        numerator
+            .checked_div(denominator)
+            .unwrap_or_else(|| panic!("trust score division failed"))
+    }
+
+    /// Round non-negative division to the nearest integer, breaking ties up.
+    fn rounded_average(total: i128, weight: i128) -> i128 {
+        if weight == 0 {
+            return 0;
+        }
+        let quotient = Self::checked_div(total, weight);
+        let remainder = total % weight;
+        let doubled_remainder = Self::checked_mul(remainder, 2);
+        if doubled_remainder >= weight {
+            quotient
+                .checked_add(1)
+                .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+        } else {
+            quotient
+        }
+    }
+
+    /// Compute the one score used by update, verification, and statistics.
+    /// Ordinary signals have weight one; weighted records use their explicit
+    /// positive weight. Negative values are rejected at ingestion, and legacy
+    /// negative records are ignored rather than allowing a negative score to
+    /// bypass the non-negative policy.
+    fn compute_score(env: &Env, business_id: u32) -> i128 {
+        let signals_key = Symbol::new(env, "signals");
+        let signals: Vec<SignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&signals_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let weighted_key = Symbol::new(env, "weighted_signals");
+        let weighted: Vec<WeightedSignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&weighted_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let mut total = 0i128;
+        let mut weight = 0i128;
+
+        for i in 0..signals.len() {
+            let record = signals.get(i).unwrap();
+            if record.business_id == business_id && record.signal.value >= 0 {
+                total = Self::checked_add(total, record.signal.value);
+                weight = Self::checked_add(weight, 1);
+            }
+        }
+        for i in 0..weighted.len() {
+            let record = weighted.get(i).unwrap();
+            if record.business_id == business_id && record.signal.value >= 0 {
+                total =
+                    Self::checked_add(total, Self::checked_mul(record.signal.value, record.weight));
+                weight = Self::checked_add(weight, record.weight);
+            }
+        }
+        Self::rounded_average(total, weight)
+    }
+
     /// Register a business with wallet and company name.
     pub fn register_business(env: Env, wallet: String, company_name: String) -> u32 {
         let business = Business {
@@ -81,6 +162,9 @@ impl TrustLayerContract {
 
     /// Record a trust signal for a business.
     pub fn record_signal(env: Env, business_id: u32, signal_type: Symbol, value: i128) -> bool {
+        if value < 0 {
+            panic!("negative trust signals are not permitted");
+        }
         let signal = TrustSignal {
             signal_type: signal_type.clone(),
             value,
@@ -100,25 +184,42 @@ impl TrustLayerContract {
         true
     }
 
-    /// Update trust score for a business (computed from signals).
-    pub fn update_trust_score(env: Env, business_id: u32) -> i128 {
-        let key = Symbol::new(&env, "signals");
-        let signals: Vec<SignalRecord> = env
+    /// Record a non-negative signal with a checked positive integer weight.
+    pub fn record_weighted_signal(
+        env: Env,
+        business_id: u32,
+        signal_type: Symbol,
+        value: i128,
+        weight: i128,
+    ) -> bool {
+        if value < 0 {
+            panic!("negative trust signals are not permitted");
+        }
+        if weight <= 0 {
+            panic!("trust signal weight must be positive");
+        }
+        // Validate the multiplication before writing the record so an
+        // overflowed contribution cannot leave a partially accepted signal.
+        Self::checked_mul(value, weight);
+        let record = WeightedSignalRecord {
+            business_id,
+            signal: TrustSignal { signal_type, value },
+            weight,
+        };
+        let key = Symbol::new(&env, "weighted_signals");
+        let mut records: Vec<WeightedSignalRecord> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or_else(|| Vec::new(&env));
-        let mut total: i128 = 0;
-        let mut count: i128 = 0;
-        let len = signals.len();
-        for i in 0..len {
-            let record = signals.get(i).unwrap();
-            if record.business_id == business_id {
-                total += record.signal.value;
-                count += 1;
-            }
-        }
-        let score = if count > 0 { total / count } else { 0 };
+        records.push_back(record);
+        env.storage().persistent().set(&key, &records);
+        true
+    }
+
+    /// Update trust score for a business (computed from signals).
+    pub fn update_trust_score(env: Env, business_id: u32) -> i128 {
+        let score = Self::compute_score(&env, business_id);
         let score_key = Symbol::new(&env, "score");
         let mut scores: Vec<ScoreRecord> = env
             .storage()
@@ -144,20 +245,7 @@ impl TrustLayerContract {
 
     /// Verify and return trust score for a business.
     pub fn verify_trust_score(env: Env, business_id: u32) -> i128 {
-        let score_key = Symbol::new(&env, "score");
-        let scores: Vec<ScoreRecord> = env
-            .storage()
-            .persistent()
-            .get(&score_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        let len = scores.len();
-        for i in 0..len {
-            let rec = scores.get(i).unwrap();
-            if rec.business_id == business_id {
-                return rec.score;
-            }
-        }
-        0
+        Self::compute_score(&env, business_id)
     }
 
     /// Set the business category for a business profile.
@@ -392,27 +480,7 @@ impl TrustLayerContract {
 
     /// Average raw signal value for a business; zero when it has none.
     pub fn average_signal_value(env: Env, business_id: u32) -> i128 {
-        let key = Symbol::new(&env, "signals");
-        let signals: Vec<SignalRecord> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(&env));
-        let mut total: i128 = 0;
-        let mut count: i128 = 0;
-        let len = signals.len();
-        for i in 0..len {
-            let record = signals.get(i).unwrap();
-            if record.business_id == business_id {
-                total += record.signal.value;
-                count += 1;
-            }
-        }
-        if count > 0 {
-            total / count
-        } else {
-            0
-        }
+        Self::compute_score(&env, business_id)
     }
 
     /// Count signals of a specific type recorded for a business.
