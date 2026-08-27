@@ -30,9 +30,13 @@ pub struct SignalSchema {
 }
 
 const SIGNAL_SCHEMA_VERSION: u32 = 1;
-const SIGNAL_MIN_VALUE: i128 = -1_000_000;
+const SIGNAL_MIN_VALUE: i128 = 0;
 const SIGNAL_MAX_VALUE: i128 = 1_000_000;
 const SIGNAL_MAX_TYPE_LEN: u32 = 16;
+
+const MAX_WALLET_LENGTH: usize = 56;
+const MAX_COMPANY_NAME_LENGTH: usize = 128;
+const IDENTITY_INDEX_READY: &str = "identity_index_ready";
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,6 +57,15 @@ pub struct TrustSignal {
 pub struct SignalRecord {
     pub business_id: u32,
     pub signal: TrustSignal,
+}
+
+/// A signal with an explicit positive integer weight.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WeightedSignalRecord {
+    pub business_id: u32,
+    pub signal: TrustSignal,
+    pub weight: i128,
 }
 
 #[contracttype]
@@ -128,8 +141,178 @@ impl TrustLayerContract {
         }
     }
 
+    /// Validate the canonical wallet representation used by new registrations.
+    ///
+    /// Stellar account identifiers are represented as an uppercase `G` followed
+    /// by one to 55 uppercase alphanumeric characters.  The contract keeps the
+    /// representation as a String for backwards compatibility with the
+    /// original API, but validates its byte-level shape before persisting it.
+    fn validate_wallet(wallet: &String) {
+        let length = wallet.len() as usize;
+        if !(2..=MAX_WALLET_LENGTH).contains(&length) {
+            panic!("invalid business wallet length");
+        }
+
+        let mut bytes = [0u8; MAX_WALLET_LENGTH];
+        wallet.copy_into_slice(&mut bytes[..length]);
+        if bytes[0] != b'G' {
+            panic!("business wallet must start with G");
+        }
+        for byte in &bytes[1..length] {
+            if !((*byte >= b'A' && *byte <= b'Z') || (*byte >= b'0' && *byte <= b'9')) {
+                panic!("business wallet contains a non-canonical character");
+            }
+        }
+    }
+
+    /// Validate the bounded business name without changing legacy records.
+    fn validate_company_name(company_name: &String) {
+        let length = company_name.len() as usize;
+        if length == 0 || length > MAX_COMPANY_NAME_LENGTH {
+            panic!("invalid company name length");
+        }
+    }
+
+    fn identity_index_key(env: &Env) -> Symbol {
+        Symbol::new(env, "identity_index")
+    }
+
+    fn identity_index_ready_key(env: &Env) -> Symbol {
+        Symbol::new(env, IDENTITY_INDEX_READY)
+    }
+
+    /// Build the new wallet index once so records written by older versions
+    /// remain readable.  Invalid legacy values are deliberately left alone;
+    /// they can still be returned by `get_business`, but cannot collide with a
+    /// new canonical registration.
+    fn ensure_identity_index(env: &Env) -> Map<String, u32> {
+        let ready_key = Self::identity_index_ready_key(env);
+        if let Some(index) = env
+            .storage()
+            .persistent()
+            .get(&Self::identity_index_key(env))
+        {
+            if env
+                .storage()
+                .persistent()
+                .get::<_, bool>(&ready_key)
+                .unwrap_or(false)
+            {
+                return index;
+            }
+        }
+
+        let businesses_key = Symbol::new(env, "business");
+        let businesses: Vec<Business> = env
+            .storage()
+            .persistent()
+            .get(&businesses_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let mut index: Map<String, u32> = Map::new(env);
+        for id in 0..businesses.len() {
+            let business = businesses.get(id).unwrap();
+            if business.wallet.len() >= 2 && business.wallet.len() as usize <= MAX_WALLET_LENGTH {
+                // Existing deployments may contain values that predate strict
+                // validation.  Only index values that pass the same policy.
+                let length = business.wallet.len() as usize;
+                let mut bytes = [0u8; MAX_WALLET_LENGTH];
+                business.wallet.copy_into_slice(&mut bytes[..length]);
+                let valid = bytes[0] == b'G'
+                    && bytes[1..length].iter().all(|byte| {
+                        (*byte >= b'A' && *byte <= b'Z') || (*byte >= b'0' && *byte <= b'9')
+                    });
+                if valid && index.get(business.wallet.clone()).is_none() {
+                    index.set(business.wallet, id);
+                }
+            }
+        }
+        env.storage()
+            .persistent()
+            .set(&Self::identity_index_key(env), &index);
+        env.storage().persistent().set(&ready_key, &true);
+        index
+    }
+
+    fn checked_add(left: i128, right: i128) -> i128 {
+        left.checked_add(right)
+            .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+    }
+
+    fn checked_mul(left: i128, right: i128) -> i128 {
+        left.checked_mul(right)
+            .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+    }
+
+    fn checked_div(numerator: i128, denominator: i128) -> i128 {
+        numerator
+            .checked_div(denominator)
+            .unwrap_or_else(|| panic!("trust score division failed"))
+    }
+
+    /// Round non-negative division to the nearest integer, breaking ties up.
+    fn rounded_average(total: i128, weight: i128) -> i128 {
+        if weight == 0 {
+            return 0;
+        }
+        let quotient = Self::checked_div(total, weight);
+        let remainder = total % weight;
+        let doubled_remainder = Self::checked_mul(remainder, 2);
+        if doubled_remainder >= weight {
+            quotient
+                .checked_add(1)
+                .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
+        } else {
+            quotient
+        }
+    }
+
+    /// Compute the one score used by update, verification, and statistics.
+    /// Ordinary signals have weight one; weighted records use their explicit
+    /// positive weight. Negative values are rejected at ingestion, and legacy
+    /// negative records are ignored rather than allowing a negative score to
+    /// bypass the non-negative policy.
+    fn compute_score(env: &Env, business_id: u32) -> i128 {
+        let signals_key = Symbol::new(env, "signals");
+        let signals: Vec<SignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&signals_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let weighted_key = Symbol::new(env, "weighted_signals");
+        let weighted: Vec<WeightedSignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&weighted_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let mut total = 0i128;
+        let mut weight = 0i128;
+
+        for i in 0..signals.len() {
+            let record = signals.get(i).unwrap();
+            if record.business_id == business_id && record.signal.value >= 0 {
+                total = Self::checked_add(total, record.signal.value);
+                weight = Self::checked_add(weight, 1);
+            }
+        }
+        for i in 0..weighted.len() {
+            let record = weighted.get(i).unwrap();
+            if record.business_id == business_id && record.signal.value >= 0 {
+                total =
+                    Self::checked_add(total, Self::checked_mul(record.signal.value, record.weight));
+                weight = Self::checked_add(weight, record.weight);
+            }
+        }
+        Self::rounded_average(total, weight)
+    }
+
     /// Register a business with wallet and company name.
     pub fn register_business(env: Env, wallet: String, company_name: String) -> u32 {
+        Self::validate_wallet(&wallet);
+        Self::validate_company_name(&company_name);
+        let mut identity_index = Self::ensure_identity_index(&env);
+        if identity_index.get(wallet.clone()).is_some() {
+            panic!("business wallet is already registered");
+        }
         let business = Business {
             wallet: wallet.clone(),
             company_name: company_name.clone(),
@@ -143,12 +326,19 @@ impl TrustLayerContract {
         let id = businesses.len();
         businesses.push_back(business);
         env.storage().persistent().set(&key, &businesses);
+        identity_index.set(wallet, id);
+        env.storage()
+            .persistent()
+            .set(&Self::identity_index_key(&env), &identity_index);
         id
     }
 
     /// Record a trust signal for a business.
     pub fn record_signal(env: Env, business_id: u32, signal_type: Symbol, value: i128) -> bool {
         Self::validate_signal(&env, &signal_type, value);
+        if value < 0 {
+            panic!("negative trust signals are not permitted");
+        }
         let signal = TrustSignal {
             signal_type: signal_type.clone(),
             value,
@@ -168,25 +358,42 @@ impl TrustLayerContract {
         true
     }
 
-    /// Update trust score for a business (computed from signals).
-    pub fn update_trust_score(env: Env, business_id: u32) -> i128 {
-        let key = Symbol::new(&env, "signals");
-        let signals: Vec<SignalRecord> = env
+    /// Record a non-negative signal with a checked positive integer weight.
+    pub fn record_weighted_signal(
+        env: Env,
+        business_id: u32,
+        signal_type: Symbol,
+        value: i128,
+        weight: i128,
+    ) -> bool {
+        if value < 0 {
+            panic!("negative trust signals are not permitted");
+        }
+        if weight <= 0 {
+            panic!("trust signal weight must be positive");
+        }
+        // Validate the multiplication before writing the record so an
+        // overflowed contribution cannot leave a partially accepted signal.
+        Self::checked_mul(value, weight);
+        let record = WeightedSignalRecord {
+            business_id,
+            signal: TrustSignal { signal_type, value },
+            weight,
+        };
+        let key = Symbol::new(&env, "weighted_signals");
+        let mut records: Vec<WeightedSignalRecord> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or_else(|| Vec::new(&env));
-        let mut total: i128 = 0;
-        let mut count: i128 = 0;
-        let len = signals.len();
-        for i in 0..len {
-            let record = signals.get(i).unwrap();
-            if record.business_id == business_id {
-                total += record.signal.value;
-                count += 1;
-            }
-        }
-        let score = if count > 0 { total / count } else { 0 };
+        records.push_back(record);
+        env.storage().persistent().set(&key, &records);
+        true
+    }
+
+    /// Update trust score for a business (computed from signals).
+    pub fn update_trust_score(env: Env, business_id: u32) -> i128 {
+        let score = Self::compute_score(&env, business_id);
         let score_key = Symbol::new(&env, "score");
         let mut scores: Vec<ScoreRecord> = env
             .storage()
@@ -212,20 +419,7 @@ impl TrustLayerContract {
 
     /// Verify and return trust score for a business.
     pub fn verify_trust_score(env: Env, business_id: u32) -> i128 {
-        let score_key = Symbol::new(&env, "score");
-        let scores: Vec<ScoreRecord> = env
-            .storage()
-            .persistent()
-            .get(&score_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        let len = scores.len();
-        for i in 0..len {
-            let rec = scores.get(i).unwrap();
-            if rec.business_id == business_id {
-                return rec.score;
-            }
-        }
-        0
+        Self::compute_score(&env, business_id)
     }
 
     /// Set the business category for a business profile.
@@ -324,6 +518,17 @@ impl TrustLayerContract {
         } else {
             None
         }
+    }
+
+    /// Return the first business registered with a canonical wallet.
+    pub fn get_business_by_wallet(env: Env, wallet: String) -> Option<u32> {
+        Self::validate_wallet(&wallet);
+        Self::ensure_identity_index(&env).get(wallet)
+    }
+
+    /// Report whether a canonical wallet is already present in the registry.
+    pub fn is_wallet_registered(env: Env, wallet: String) -> bool {
+        Self::get_business_by_wallet(env, wallet).is_some()
     }
 
     /// Count the number of registered businesses.
@@ -460,27 +665,7 @@ impl TrustLayerContract {
 
     /// Average raw signal value for a business; zero when it has none.
     pub fn average_signal_value(env: Env, business_id: u32) -> i128 {
-        let key = Symbol::new(&env, "signals");
-        let signals: Vec<SignalRecord> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(&env));
-        let mut total: i128 = 0;
-        let mut count: i128 = 0;
-        let len = signals.len();
-        for i in 0..len {
-            let record = signals.get(i).unwrap();
-            if record.business_id == business_id {
-                total += record.signal.value;
-                count += 1;
-            }
-        }
-        if count > 0 {
-            total / count
-        } else {
-            0
-        }
+        Self::compute_score(&env, business_id)
     }
 
     /// Count signals of a specific type recorded for a business.

@@ -51,6 +51,17 @@ Beyond scoring, the contract stores lightweight profile metadata per business:
 - `set_profile` / `get_profile` – set or read the full `BusinessProfile`
 - `register_verified_business` – register and set a tier in one call
 - `get_business` / `count_businesses` / `count_active_businesses` – registry queries
+- `get_business_by_wallet` / `is_wallet_registered` – canonical-wallet lookup backed by a duplicate-safe index
+
+### Registration integrity
+
+New registrations require a non-empty company name of at most 128 bytes and a
+canonical wallet identifier: an uppercase `G` followed by uppercase letters or
+digits, with a maximum length of 56 bytes. Wallet identity is unique across the
+registry, so registering the same wallet twice fails before the business list or
+index is changed. The lookup index is initialized lazily to keep businesses
+written by older contract versions readable; malformed legacy wallet strings
+are returned by id but are not used as new canonical identities.
 
 ## Business Signal Stats API
 
@@ -75,8 +86,8 @@ or writing a `SignalRecord`. The schema is available to clients through
 - `dispute`
 
 Signal symbols may be at most 16 characters. Values are inclusive from
-`-1_000_000` through `1_000_000`, so zero and negative observations remain
-valid while unbounded `i128` values are rejected. Empty, unknown, and
+`0` through `1_000_000`; negative observations are rejected by the score
+policy while unbounded `i128` values are rejected. Empty, unknown, and
 oversized symbols return stable typed contract errors. Validation runs before
 the signal vector is read or written; a rejected signal therefore cannot
 change counts, scores, or other persisted state.
@@ -87,6 +98,13 @@ document how clients and stored records coexist. Existing accepted symbols
 and values retain their meaning in version 1. A migration that changes the
 allowed set or range must be deployed as an explicit compatibility decision;
 rollback is safe because failed validation performs no writes.
+Trust scores use one checked computation shared by update, verification, and
+statistics views. Ordinary signals have weight one; callers that need explicit
+weighting can use `record_weighted_signal`. Values must be non-negative and
+weights must be positive. Totals, weighted products, denominators, and division
+are checked, and non-negative averages use nearest-integer rounding with ties
+rounded upward. This policy makes negative signals and arithmetic overflow
+explicit rather than allowing intermediate values to influence a final clamp.
 
 ## Verification Tier Registry API
 

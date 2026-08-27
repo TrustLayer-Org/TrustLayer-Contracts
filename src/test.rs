@@ -902,16 +902,14 @@ fn test_values_outside_inclusive_range_fail_without_score_changes() {
 }
 
 #[test]
-fn test_negative_values_are_scored_without_sign_conversion() {
+#[should_panic(expected = "negative trust signals are not permitted")]
+fn test_negative_values_are_rejected_before_scoring() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
     let client = TrustLayerContractClient::new(&env, &contract_id);
     let signal_type = Symbol::new(&env, "compliance");
 
     client.record_signal(&0, &signal_type, &-100);
-    client.record_signal(&0, &signal_type, &100);
-    assert_eq!(client.update_trust_score(&0), 0);
-    assert_eq!(client.average_signal_value(&0), 0);
 }
 
 fn assert_rejected_signal(
@@ -1107,18 +1105,18 @@ fn test_failed_submissions_do_not_create_a_score_record() {
 }
 
 #[test]
-fn test_valid_negative_and_positive_values_remain_inclusive_after_rejections() {
+fn test_negative_values_are_rejected_and_positive_bounds_remain_inclusive() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
     let client = TrustLayerContractClient::new(&env, &contract_id);
     let signal_type = Symbol::new(&env, "delivery");
 
     assert_rejected_signal(&env, &client, 0, "delivery", -1_000_001);
-    assert!(client.record_signal(&0, &signal_type, &-1_000_000));
+    assert_rejected_signal(&env, &client, 0, "delivery", -1_000_000);
     assert_rejected_signal(&env, &client, 0, "delivery", 1_000_001);
     assert!(client.record_signal(&0, &signal_type, &1_000_000));
-    assert_eq!(client.count_signals_for_business(&0), 2);
-    assert_eq!(client.average_signal_value(&0), 0);
+    assert_eq!(client.count_signals_for_business(&0), 1);
+    assert_eq!(client.average_signal_value(&0), 1_000_000);
 }
 
 #[test]
@@ -1161,13 +1159,13 @@ fn test_validation_is_independent_per_business() {
 
     assert!(client.record_signal(&0, &payment, &100));
     assert_rejected_signal(&env, &client, 1, "unknown", 100);
-    assert!(client.record_signal(&1, &review, &-100));
+    assert_rejected_signal(&env, &client, 1, "review", -100);
     assert_rejected_signal(&env, &client, 0, "payment_v2", 100);
 
     assert_eq!(client.count_signals_for_business(&0), 1);
-    assert_eq!(client.count_signals_for_business(&1), 1);
+    assert_eq!(client.count_signals_for_business(&1), 0);
     assert_eq!(client.latest_signal_value(&0), Some(100));
-    assert_eq!(client.latest_signal_value(&1), Some(-100));
+    assert_eq!(client.latest_signal_value(&1), None);
 }
 
 #[test]
@@ -1194,4 +1192,132 @@ fn test_allowlisted_types_are_counted_independently_after_mixed_values() {
     assert_eq!(client.signal_type_count(&0, &dispute), 1);
     assert_eq!(client.count_signals_for_business(&0), 5);
     assert_eq!(client.average_signal_value(&0), 30);
+}
+
+#[test]
+#[should_panic(expected = "business wallet must start with G")]
+fn test_registration_rejects_non_g_wallets() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    client.register_business(&String::from_str(&env, "X123"), &String::from_str(&env, "Invalid"));
+}
+
+#[test]
+#[should_panic(expected = "business wallet is already registered")]
+fn test_registration_rejects_duplicate_wallet() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let wallet = String::from_str(&env, "GDUPLICATE123");
+    client.register_business(&wallet, &String::from_str(&env, "First"));
+    client.register_business(&wallet, &String::from_str(&env, "Second"));
+}
+
+#[test]
+fn test_wallet_index_returns_registered_business() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let wallet = String::from_str(&env, "GINDEX123");
+    let id = client.register_business(&wallet, &String::from_str(&env, "Indexed"));
+    assert_eq!(client.get_business_by_wallet(&wallet), Some(id));
+    assert!(client.is_wallet_registered(&wallet));
+}
+
+#[test]
+fn test_failed_duplicate_registration_does_not_add_record() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let wallet = String::from_str(&env, "GATOMIC123");
+    client.register_business(&wallet, &String::from_str(&env, "Original"));
+    let result = client.try_register_business(&wallet, &String::from_str(&env, "Rejected"));
+    assert!(result.is_err());
+    assert_eq!(client.count_businesses(), 1);
+    assert_eq!(client.get_business_by_wallet(&wallet), Some(0));
+}
+
+#[test]
+fn test_distinct_canonical_wallets_are_indexed_independently() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let first = String::from_str(&env, "GFIRST123");
+    let second = String::from_str(&env, "GSECOND123");
+    client.register_business(&first, &String::from_str(&env, "First"));
+    client.register_business(&second, &String::from_str(&env, "Second"));
+    assert_eq!(client.get_business_by_wallet(&first), Some(0));
+    assert_eq!(client.get_business_by_wallet(&second), Some(1));
+}
+
+#[test]
+fn test_weighted_score_uses_checked_weighted_average() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    client.record_weighted_signal(&7, &Symbol::new(&env, "payment"), &100, &3);
+    client.record_weighted_signal(&7, &Symbol::new(&env, "review"), &40, &1);
+    assert_eq!(client.update_trust_score(&7), 85);
+    assert_eq!(client.verify_trust_score(&7), 85);
+    assert_eq!(client.average_signal_value(&7), 85);
+    assert_eq!(client.get_business_stats(&7).average_value, 85);
+}
+
+#[test]
+fn test_tie_rounding_is_deterministically_upward() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    client.record_signal(&0, &Symbol::new(&env, "one"), &1);
+    client.record_signal(&0, &Symbol::new(&env, "two"), &2);
+    assert_eq!(client.update_trust_score(&0), 2);
+}
+
+#[test]
+#[should_panic(expected = "negative trust signals are not permitted")]
+fn test_negative_unweighted_signal_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    client.record_signal(&0, &Symbol::new(&env, "negative"), &-1);
+}
+
+#[test]
+#[should_panic(expected = "negative trust signals are not permitted")]
+fn test_negative_weighted_signal_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    client.record_weighted_signal(&0, &Symbol::new(&env, "negative"), &-1, &2);
+}
+
+#[test]
+#[should_panic(expected = "trust signal weight must be positive")]
+fn test_zero_weight_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    client.record_weighted_signal(&0, &Symbol::new(&env, "zero"), &10, &0);
+}
+
+#[test]
+#[should_panic(expected = "trust score arithmetic overflow")]
+fn test_weighted_multiplication_overflow_is_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    client.record_weighted_signal(&0, &Symbol::new(&env, "large"), &i128::MAX, &2);
+}
+
+#[test]
+fn test_verify_recomputes_after_new_signal_without_stale_storage() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    client.record_signal(&0, &Symbol::new(&env, "first"), &10);
+    assert_eq!(client.update_trust_score(&0), 10);
+    client.record_signal(&0, &Symbol::new(&env, "second"), &20);
+    assert_eq!(client.verify_trust_score(&0), 15);
+    assert_eq!(client.get_business_stats(&0).average_value, 15);
 }
