@@ -10,13 +10,13 @@ fn test_register_business() {
     let client = TrustLayerContractClient::new(&env, &contract_id);
 
     let id = client.register_business(
-        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "GABC"),
         &String::from_str(&env, "Alpha Logistics"),
     );
     assert_eq!(id, 0);
 
     let id2 = client.register_business(
-        &String::from_str(&env, "GDEF..."),
+        &String::from_str(&env, "GDEF"),
         &String::from_str(&env, "Beta Corp"),
     );
     assert_eq!(id2, 1);
@@ -29,7 +29,7 @@ fn test_record_signal_and_verify_trust_score() {
     let client = TrustLayerContractClient::new(&env, &contract_id);
 
     let _ = client.register_business(
-        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "GABC"),
         &String::from_str(&env, "Alpha Logistics"),
     );
 
@@ -127,7 +127,7 @@ fn test_get_business_existing() {
     let client = TrustLayerContractClient::new(&env, &contract_id);
 
     let id = client.register_business(
-        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "GABC"),
         &String::from_str(&env, "Alpha Logistics"),
     );
     let business = client.get_business(&id).unwrap();
@@ -154,11 +154,11 @@ fn test_count_businesses() {
 
     assert_eq!(client.count_businesses(), 0);
     client.register_business(
-        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "GABC"),
         &String::from_str(&env, "Alpha Logistics"),
     );
     client.register_business(
-        &String::from_str(&env, "GDEF..."),
+        &String::from_str(&env, "GDEF"),
         &String::from_str(&env, "Beta Corp"),
     );
     assert_eq!(client.count_businesses(), 2);
@@ -210,7 +210,7 @@ fn test_register_verified_business_sets_tier() {
     let client = TrustLayerContractClient::new(&env, &contract_id);
 
     let id = client.register_verified_business(
-        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "GABC"),
         &String::from_str(&env, "Alpha Logistics"),
         &4,
     );
@@ -225,13 +225,13 @@ fn test_register_verified_business_also_registers() {
     let client = TrustLayerContractClient::new(&env, &contract_id);
 
     let id = client.register_verified_business(
-        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "GABC"),
         &String::from_str(&env, "Alpha Logistics"),
         &2,
     );
     assert_eq!(client.count_businesses(), 1);
     let business = client.get_business(&id).unwrap();
-    assert_eq!(business.wallet, String::from_str(&env, "GABC..."));
+    assert_eq!(business.wallet, String::from_str(&env, "GABC"));
 }
 
 #[test]
@@ -776,6 +776,127 @@ fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
     assert_eq!(summary.tier, 5);
     assert_eq!(summary.business_count, 0);
     assert_eq!(summary.business_ids.len(), 0);
+}
+
+#[test]
+#[should_panic(expected = "business wallet must start with G")]
+fn test_registration_rejects_non_g_wallets() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "X123"),
+        &String::from_str(&env, "Invalid Wallet Co"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "business wallet contains a non-canonical character")]
+fn test_registration_rejects_wallet_punctuation() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "GABC-123"),
+        &String::from_str(&env, "Invalid Wallet Co"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "business wallet contains a non-canonical character")]
+fn test_registration_rejects_lowercase_wallet_variants() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "Gabc123"),
+        &String::from_str(&env, "Invalid Wallet Co"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "invalid business wallet length")]
+fn test_registration_rejects_empty_wallet() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, ""),
+        &String::from_str(&env, "Invalid Wallet Co"),
+    );
+}
+
+#[test]
+#[should_panic(expected = "invalid company name length")]
+fn test_registration_rejects_empty_company_name() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+
+    client.register_business(
+        &String::from_str(&env, "GVALID123"),
+        &String::from_str(&env, ""),
+    );
+}
+
+#[test]
+#[should_panic(expected = "business wallet is already registered")]
+fn test_registration_rejects_duplicate_wallet() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let wallet = String::from_str(&env, "GDUPLICATE123");
+
+    client.register_business(&wallet, &String::from_str(&env, "First Co"));
+    client.register_business(&wallet, &String::from_str(&env, "Second Co"));
+}
+
+#[test]
+fn test_wallet_index_returns_registered_business() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let wallet = String::from_str(&env, "GINDEX123");
+
+    let id = client.register_business(&wallet, &String::from_str(&env, "Indexed Co"));
+    assert_eq!(client.get_business_by_wallet(&wallet), Some(id));
+    assert!(client.is_wallet_registered(&wallet));
+}
+
+#[test]
+fn test_failed_duplicate_registration_does_not_add_record() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let wallet = String::from_str(&env, "GATOMIC123");
+
+    client.register_business(&wallet, &String::from_str(&env, "Original Co"));
+    let result = client.try_register_business(&wallet, &String::from_str(&env, "Rejected Co"));
+    assert!(result.is_err());
+    assert_eq!(client.count_businesses(), 1);
+    assert_eq!(client.get_business_by_wallet(&wallet), Some(0));
+    assert_eq!(
+        client.get_business(&0).unwrap().company_name,
+        String::from_str(&env, "Original Co")
+    );
+}
+
+#[test]
+fn test_distinct_canonical_wallets_are_indexed_independently() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let first = String::from_str(&env, "GFIRST123");
+    let second = String::from_str(&env, "GSECOND123");
+
+    client.register_business(&first, &String::from_str(&env, "First Co"));
+    client.register_business(&second, &String::from_str(&env, "Second Co"));
+    assert_eq!(client.get_business_by_wallet(&first), Some(0));
+    assert_eq!(client.get_business_by_wallet(&second), Some(1));
 }
 
 #[test]

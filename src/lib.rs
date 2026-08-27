@@ -2,6 +2,10 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, Env, Map, String, Symbol, Vec};
 
+const MAX_WALLET_LENGTH: usize = 56;
+const MAX_COMPANY_NAME_LENGTH: usize = 128;
+const IDENTITY_INDEX_READY: &str = "identity_index_ready";
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Business {
@@ -70,6 +74,98 @@ pub struct TrustLayerContract;
 
 #[contractimpl]
 impl TrustLayerContract {
+    /// Validate the canonical wallet representation used by new registrations.
+    ///
+    /// Stellar account identifiers are represented as an uppercase `G` followed
+    /// by one to 55 uppercase alphanumeric characters.  The contract keeps the
+    /// representation as a String for backwards compatibility with the
+    /// original API, but validates its byte-level shape before persisting it.
+    fn validate_wallet(wallet: &String) {
+        let length = wallet.len() as usize;
+        if !(2..=MAX_WALLET_LENGTH).contains(&length) {
+            panic!("invalid business wallet length");
+        }
+
+        let mut bytes = [0u8; MAX_WALLET_LENGTH];
+        wallet.copy_into_slice(&mut bytes[..length]);
+        if bytes[0] != b'G' {
+            panic!("business wallet must start with G");
+        }
+        for byte in &bytes[1..length] {
+            if !((*byte >= b'A' && *byte <= b'Z') || (*byte >= b'0' && *byte <= b'9')) {
+                panic!("business wallet contains a non-canonical character");
+            }
+        }
+    }
+
+    /// Validate the bounded business name without changing legacy records.
+    fn validate_company_name(company_name: &String) {
+        let length = company_name.len() as usize;
+        if length == 0 || length > MAX_COMPANY_NAME_LENGTH {
+            panic!("invalid company name length");
+        }
+    }
+
+    fn identity_index_key(env: &Env) -> Symbol {
+        Symbol::new(env, "identity_index")
+    }
+
+    fn identity_index_ready_key(env: &Env) -> Symbol {
+        Symbol::new(env, IDENTITY_INDEX_READY)
+    }
+
+    /// Build the new wallet index once so records written by older versions
+    /// remain readable.  Invalid legacy values are deliberately left alone;
+    /// they can still be returned by `get_business`, but cannot collide with a
+    /// new canonical registration.
+    fn ensure_identity_index(env: &Env) -> Map<String, u32> {
+        let ready_key = Self::identity_index_ready_key(env);
+        if let Some(index) = env
+            .storage()
+            .persistent()
+            .get(&Self::identity_index_key(env))
+        {
+            if env
+                .storage()
+                .persistent()
+                .get::<_, bool>(&ready_key)
+                .unwrap_or(false)
+            {
+                return index;
+            }
+        }
+
+        let businesses_key = Symbol::new(env, "business");
+        let businesses: Vec<Business> = env
+            .storage()
+            .persistent()
+            .get(&businesses_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let mut index: Map<String, u32> = Map::new(env);
+        for id in 0..businesses.len() {
+            let business = businesses.get(id).unwrap();
+            if business.wallet.len() >= 2 && business.wallet.len() as usize <= MAX_WALLET_LENGTH {
+                // Existing deployments may contain values that predate strict
+                // validation.  Only index values that pass the same policy.
+                let length = business.wallet.len() as usize;
+                let mut bytes = [0u8; MAX_WALLET_LENGTH];
+                business.wallet.copy_into_slice(&mut bytes[..length]);
+                let valid = bytes[0] == b'G'
+                    && bytes[1..length].iter().all(|byte| {
+                        (*byte >= b'A' && *byte <= b'Z') || (*byte >= b'0' && *byte <= b'9')
+                    });
+                if valid && index.get(business.wallet.clone()).is_none() {
+                    index.set(business.wallet, id);
+                }
+            }
+        }
+        env.storage()
+            .persistent()
+            .set(&Self::identity_index_key(env), &index);
+        env.storage().persistent().set(&ready_key, &true);
+        index
+    }
+
     fn checked_add(left: i128, right: i128) -> i128 {
         left.checked_add(right)
             .unwrap_or_else(|| panic!("trust score arithmetic overflow"))
@@ -144,6 +240,12 @@ impl TrustLayerContract {
 
     /// Register a business with wallet and company name.
     pub fn register_business(env: Env, wallet: String, company_name: String) -> u32 {
+        Self::validate_wallet(&wallet);
+        Self::validate_company_name(&company_name);
+        let mut identity_index = Self::ensure_identity_index(&env);
+        if identity_index.get(wallet.clone()).is_some() {
+            panic!("business wallet is already registered");
+        }
         let business = Business {
             wallet: wallet.clone(),
             company_name: company_name.clone(),
@@ -157,6 +259,10 @@ impl TrustLayerContract {
         let id = businesses.len();
         businesses.push_back(business);
         env.storage().persistent().set(&key, &businesses);
+        identity_index.set(wallet, id);
+        env.storage()
+            .persistent()
+            .set(&Self::identity_index_key(&env), &identity_index);
         id
     }
 
@@ -344,6 +450,17 @@ impl TrustLayerContract {
         } else {
             None
         }
+    }
+
+    /// Return the first business registered with a canonical wallet.
+    pub fn get_business_by_wallet(env: Env, wallet: String) -> Option<u32> {
+        Self::validate_wallet(&wallet);
+        Self::ensure_identity_index(&env).get(wallet)
+    }
+
+    /// Report whether a canonical wallet is already present in the registry.
+    pub fn is_wallet_registered(env: Env, wallet: String) -> bool {
+        Self::get_business_by_wallet(env, wallet).is_some()
     }
 
     /// Count the number of registered businesses.
