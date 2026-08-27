@@ -73,6 +73,14 @@ Lightweight aggregates over a business's recorded signals, without recomputing a
 - `signal_type_count` – how many signals of a given type a business has
 - `get_business_stats` – aggregate count, average, and presence into a `BusinessStats` view
 
+Trust scores use one checked computation shared by update, verification, and
+statistics views. Ordinary signals have weight one; callers that need explicit
+weighting can use `record_weighted_signal`. Values must be non-negative and
+weights must be positive. Totals, weighted products, denominators, and division
+are checked, and non-negative averages use nearest-integer rounding with ties
+rounded upward. This policy makes negative signals and arithmetic overflow
+explicit rather than allowing intermediate values to influence a final clamp.
+
 ## Verification Tier Registry API
 
 Query the business registry by verification tier or category, without recomputing profiles one at a time:
