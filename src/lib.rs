@@ -1,6 +1,38 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Env, Map, String,
+    Symbol, SymbolStr, TryFromVal, Vec,
+};
+
+/// Stable validation failures for the versioned signal schema.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum SignalError {
+    /// The signal symbol is empty or is not in the supported schema.
+    UnsupportedSignalType = 1,
+    /// The symbol exceeds the schema's bounded metadata length.
+    SignalTypeTooLong = 2,
+    /// The signal value is outside the inclusive schema range.
+    SignalValueOutOfBounds = 3,
+}
+
+/// Versioned schema metadata exposed to off-chain clients.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignalSchema {
+    pub version: u32,
+    pub min_value: i128,
+    pub max_value: i128,
+    pub max_type_len: u32,
+    pub allowed_types: Vec<Symbol>,
+}
+
+const SIGNAL_SCHEMA_VERSION: u32 = 1;
+const SIGNAL_MIN_VALUE: i128 = 0;
+const SIGNAL_MAX_VALUE: i128 = 1_000_000;
+const SIGNAL_MAX_TYPE_LEN: u32 = 16;
 
 const MAX_WALLET_LENGTH: usize = 56;
 const MAX_COMPANY_NAME_LENGTH: usize = 128;
@@ -74,6 +106,41 @@ pub struct TrustLayerContract;
 
 #[contractimpl]
 impl TrustLayerContract {
+    fn supported_signal_types(env: &Env) -> Vec<Symbol> {
+        let mut types = Vec::new(env);
+        types.push_back(Symbol::new(env, "payment"));
+        types.push_back(Symbol::new(env, "review"));
+        types.push_back(Symbol::new(env, "delivery"));
+        types.push_back(Symbol::new(env, "compliance"));
+        types.push_back(Symbol::new(env, "dispute"));
+        types
+    }
+
+    fn validate_signal(env: &Env, signal_type: &Symbol, value: i128) {
+        let signal_text = SymbolStr::try_from_val(env, &signal_type.to_symbol_val()).unwrap();
+        if signal_text.len() > SIGNAL_MAX_TYPE_LEN as usize {
+            panic_with_error!(env, SignalError::SignalTypeTooLong);
+        }
+        let supported = Self::supported_signal_types(env);
+        if signal_text.is_empty() || !supported.contains(signal_type) {
+            panic_with_error!(env, SignalError::UnsupportedSignalType);
+        }
+        if !(SIGNAL_MIN_VALUE..=SIGNAL_MAX_VALUE).contains(&value) {
+            panic_with_error!(env, SignalError::SignalValueOutOfBounds);
+        }
+    }
+
+    /// Return the deterministic signal schema used by `record_signal`.
+    pub fn get_signal_schema(env: Env) -> SignalSchema {
+        SignalSchema {
+            version: SIGNAL_SCHEMA_VERSION,
+            min_value: SIGNAL_MIN_VALUE,
+            max_value: SIGNAL_MAX_VALUE,
+            max_type_len: SIGNAL_MAX_TYPE_LEN,
+            allowed_types: Self::supported_signal_types(&env),
+        }
+    }
+
     /// Validate the canonical wallet representation used by new registrations.
     ///
     /// Stellar account identifiers are represented as an uppercase `G` followed
@@ -268,6 +335,7 @@ impl TrustLayerContract {
 
     /// Record a trust signal for a business.
     pub fn record_signal(env: Env, business_id: u32, signal_type: Symbol, value: i128) -> bool {
+        Self::validate_signal(&env, &signal_type, value);
         if value < 0 {
             panic!("negative trust signals are not permitted");
         }

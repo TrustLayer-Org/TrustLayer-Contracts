@@ -73,6 +73,31 @@ Lightweight aggregates over a business's recorded signals, without recomputing a
 - `signal_type_count` – how many signals of a given type a business has
 - `get_business_stats` – aggregate count, average, and presence into a `BusinessStats` view
 
+### Signal schema
+
+`record_signal` validates inputs against schema version `1` before constructing
+or writing a `SignalRecord`. The schema is available to clients through
+`get_signal_schema()` and currently accepts these deterministic symbols:
+
+- `payment`
+- `review`
+- `delivery`
+- `compliance`
+- `dispute`
+
+Signal symbols may be at most 16 characters. Values are inclusive from
+`0` through `1_000_000`; negative observations are rejected by the score
+policy while unbounded `i128` values are rejected. Empty, unknown, and
+oversized symbols return stable typed contract errors. Validation runs before
+the signal vector is read or written; a rejected signal therefore cannot
+change counts, scores, or other persisted state.
+
+The schema version and bounds are returned as contract data rather than being
+implicit in client code. Future extensions should publish a new version and
+document how clients and stored records coexist. Existing accepted symbols
+and values retain their meaning in version 1. A migration that changes the
+allowed set or range must be deployed as an explicit compatibility decision;
+rollback is safe because failed validation performs no writes.
 Trust scores use one checked computation shared by update, verification, and
 statistics views. Ordinary signals have weight one; callers that need explicit
 weighting can use `record_weighted_signal`. Values must be non-negative and
