@@ -70,6 +70,25 @@ pub struct SignalRecord {
     pub signal: TrustSignal,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignalIdentity {
+    pub business_id: u32,
+    pub signal_type: Symbol,
+    pub value: i128,
+    pub context: String,
+    pub submitter: Address,
+    pub nonce: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignalSubmission {
+    pub accepted: bool,
+    pub duplicate: bool,
+    pub signal_count: u32,
+}
+
 /// A signal with an explicit positive integer weight.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -395,6 +414,73 @@ impl TrustLayerContract {
             }
         }
         Self::rounded_average(total, weight)
+    }
+
+    /// Record a caller-bound signal exactly once for its complete identity.
+    pub fn record_signal_authorized(
+        env: Env,
+        submitter: Address,
+        business_id: u32,
+        signal_type: Symbol,
+        value: i128,
+        context: String,
+        nonce: u64,
+    ) -> SignalSubmission {
+        submitter.require_auth();
+        assert!(Self::is_active(env.clone(), business_id), "inactive business cannot receive trust data");
+        if context.len() > 256 { panic!("signal context exceeds maximum"); }
+        Self::validate_signal(&env, &signal_type, value);
+        let identity = SignalIdentity {
+            business_id,
+            signal_type: signal_type.clone(),
+            value,
+            context,
+            submitter: submitter.clone(),
+            nonce,
+        };
+        let replay_key = Symbol::new(&env, "replays");
+        let mut replayed: Map<SignalIdentity, bool> = env.storage().persistent()
+            .get(&replay_key).unwrap_or_else(|| Map::new(&env));
+        if replayed.get(identity.clone()).unwrap_or(false) {
+            return SignalSubmission {
+                accepted: false,
+                duplicate: true,
+                signal_count: Self::count_signals_for_business(env, business_id),
+            };
+        }
+        let nonce_key = Symbol::new(&env, "nonces");
+        let mut nonces: Map<Address, u64> = env.storage().persistent()
+            .get(&nonce_key).unwrap_or_else(|| Map::new(&env));
+        if let Some(previous) = nonces.get(submitter.clone()) {
+            if nonce <= previous { panic!("stale signal nonce"); }
+        }
+        let signal_key = Symbol::new(&env, "signals");
+        let mut signals: Vec<SignalRecord> = env.storage().persistent()
+            .get(&signal_key).unwrap_or_else(|| Vec::new(&env));
+        signals.push_back(SignalRecord {
+            business_id,
+            signal: TrustSignal { signal_type, value },
+        });
+        replayed.set(identity, true);
+        nonces.set(submitter, nonce);
+        env.storage().persistent().set(&signal_key, &signals);
+        env.storage().persistent().set(&replay_key, &replayed);
+        env.storage().persistent().set(&nonce_key, &nonces);
+        env.events().publish((Symbol::new(&env, "signal_recorded"),), business_id);
+        SignalSubmission { accepted: true, duplicate: false,
+            signal_count: Self::count_signals_for_business(env, business_id) }
+    }
+
+    pub fn is_signal_replayed(env: Env, identity: SignalIdentity) -> bool {
+        let replayed: Map<SignalIdentity, bool> = env.storage().persistent()
+            .get(&Symbol::new(&env, "replays")).unwrap_or_else(|| Map::new(&env));
+        replayed.get(identity).unwrap_or(false)
+    }
+
+    pub fn latest_signal_nonce(env: Env, submitter: Address) -> Option<u64> {
+        let nonces: Map<Address, u64> = env.storage().persistent()
+            .get(&Symbol::new(&env, "nonces")).unwrap_or_else(|| Map::new(&env));
+        nonces.get(submitter)
     }
 
     /// Register a business with wallet and company name.

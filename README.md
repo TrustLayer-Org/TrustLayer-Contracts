@@ -73,6 +73,14 @@ businesses only, so counts and indexes follow the same lifecycle rule.
 Profiles use storage version `1` and store category, tier, active state, and
 business id together. Legacy category/tier/active maps remain readable and are
 lazily migrated on the next profile mutation; unknown versions fail closed.
+
+## Replay protection
+
+`record_signal_authorized` binds a signal to its business, complete signal
+payload, submitter, context, and nonce. Exact retries return a deterministic
+duplicate result without adding an observation; stale nonces are rejected.
+Replay markers, nonce state, and signal storage are committed in one
+invocation, so failed submissions do not consume a retry token.
 - `get_business_by_wallet` / `is_wallet_registered` – canonical-wallet lookup backed by a duplicate-safe index
 
 ### Registration integrity
