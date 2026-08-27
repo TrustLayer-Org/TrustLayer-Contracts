@@ -81,6 +81,14 @@ payload, submitter, context, and nonce. Exact retries return a deterministic
 duplicate result without adding an observation; stale nonces are rejected.
 Replay markers, nonce state, and signal storage are committed in one
 invocation, so failed submissions do not consume a retry token.
+
+## Verification tier policy
+
+Verification tiers are bounded to `0..=10`. The explicit tier API uses a
+write-once administrator role, rejects unauthorized transitions before
+mutation, and emits structured transition events. Bump and downgrade are
+checked at both bounds, and compound profile updates validate authorization
+and tier limits before writing.
 - `get_business_by_wallet` / `is_wallet_registered` – canonical-wallet lookup backed by a duplicate-safe index
 
 ### Registration integrity

@@ -6,6 +6,8 @@ use soroban_sdk::{
 };
 
 const AUTHORITY_KEY: &str = "authority";
+pub const MAX_VERIFICATION_TIER: u32 = 10;
+const TIER_ADMIN: Symbol = soroban_sdk::symbol_short!("tieradmin");
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -87,6 +89,15 @@ pub struct SignalSubmission {
     pub accepted: bool,
     pub duplicate: bool,
     pub signal_count: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TierTransition {
+    pub business_id: u32,
+    pub previous_tier: u32,
+    pub next_tier: u32,
+    pub reason: Symbol,
 }
 
 /// A signal with an explicit positive integer weight.
@@ -215,6 +226,69 @@ impl TrustLayerContract {
             panic_with_error!(env, Error::Unauthorized);
         }
         caller.require_auth();
+    }
+
+    /// Configure the sole role allowed to use the explicit tier API.
+    pub fn initialize_tier_admin(env: Env, admin: Address) {
+        if env.storage().instance().has(&TIER_ADMIN) {
+            panic!("tier admin already initialized");
+        }
+        admin.require_auth();
+        env.storage().instance().set(&TIER_ADMIN, &admin);
+    }
+
+    pub fn get_tier_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&TIER_ADMIN)
+    }
+
+    fn authorize_tier_admin(env: &Env, admin: &Address) {
+        admin.require_auth();
+        let configured: Address = env.storage().instance().get(&TIER_ADMIN)
+            .unwrap_or_else(|| panic!("tier admin not initialized"));
+        if configured != *admin { panic!("unauthorized tier administrator"); }
+    }
+
+    fn validate_tier(tier: u32) {
+        if tier > MAX_VERIFICATION_TIER { panic!("verification tier exceeds maximum"); }
+    }
+
+    fn write_tier(env: &Env, business_id: u32, tier: u32, reason: Symbol) -> TierTransition {
+        Self::validate_tier(tier);
+        let previous_tier = Self::get_verification_tier(env.clone(), business_id);
+        let mut profile = read_profile(env, business_id);
+        profile.tier = tier;
+        write_profile(env, profile);
+        let transition = TierTransition { business_id, previous_tier, next_tier: tier, reason };
+        env.events().publish((Symbol::new(env, "tier_changed"),), transition.clone());
+        transition
+    }
+
+    pub fn set_tier_authorized(env: Env, admin: Address, business_id: u32, tier: u32) -> TierTransition {
+        Self::authorize_tier_admin(&env, &admin);
+        Self::write_tier(&env, business_id, tier, Symbol::new(&env, "set"))
+    }
+
+    pub fn bump_tier_authorized(env: Env, admin: Address, business_id: u32) -> TierTransition {
+        Self::authorize_tier_admin(&env, &admin);
+        let current = Self::get_verification_tier(env.clone(), business_id);
+        if current >= MAX_VERIFICATION_TIER { panic!("verification tier is already at maximum"); }
+        Self::write_tier(&env, business_id, current + 1, Symbol::new(&env, "bump"))
+    }
+
+    pub fn downgrade_tier_authorized(env: Env, admin: Address, business_id: u32) -> TierTransition {
+        Self::authorize_tier_admin(&env, &admin);
+        let current = Self::get_verification_tier(env.clone(), business_id);
+        Self::write_tier(&env, business_id, current.checked_sub(1).unwrap_or(0), Symbol::new(&env, "downgrade"))
+    }
+
+    pub fn set_profile_authorized(
+        env: Env, admin: Address, business_id: u32, category: Symbol, tier: u32, active: bool,
+    ) -> BusinessProfile {
+        Self::authorize_tier_admin(&env, &admin);
+        Self::validate_tier(tier);
+        write_profile(&env, BusinessProfile { business_id, category, tier, active });
+        env.events().publish((Symbol::new(&env, "profile_changed"),), business_id);
+        read_profile(&env, business_id)
     }
 
     fn supported_signal_types(env: &Env) -> Vec<Symbol> {
@@ -630,6 +704,7 @@ impl TrustLayerContract {
     /// Set the verification tier for a business.
     pub fn set_verification_tier(env: Env, caller: Address, business_id: u32, tier: u32) {
         Self::require_authority(&env, &caller);
+        Self::validate_tier(tier);
         let mut profile = read_profile(&env, business_id);
         profile.tier = tier;
         write_profile(&env, profile);
@@ -712,6 +787,7 @@ impl TrustLayerContract {
         tier: u32,
     ) -> u32 {
         Self::require_authority(&env, &caller);
+        Self::validate_tier(tier);
         let id = Self::register_business(env.clone(), caller.clone(), wallet, company_name);
         Self::set_verification_tier(env, caller, id, tier);
         id
@@ -730,7 +806,9 @@ impl TrustLayerContract {
     /// Increment a business's verification tier by one and return the new tier.
     pub fn bump_tier(env: Env, caller: Address, business_id: u32) -> u32 {
         Self::require_authority(&env, &caller);
-        let next = Self::get_verification_tier(env.clone(), business_id) + 1;
+        let current = Self::get_verification_tier(env.clone(), business_id);
+        if current >= MAX_VERIFICATION_TIER { panic!("verification tier is already at maximum"); }
+        let next = current + 1;
         Self::set_verification_tier(env, caller, business_id, next);
         next
     }
@@ -749,6 +827,7 @@ impl TrustLayerContract {
         env: Env, caller: Address, business_id: u32, category: Symbol, tier: u32, active: bool,
     ) {
         Self::require_authority(&env, &caller);
+        Self::validate_tier(tier);
         write_profile(&env, BusinessProfile { business_id, category, tier, active });
         env.events().publish((Symbol::new(&env, "profile_changed"),), business_id);
     }
