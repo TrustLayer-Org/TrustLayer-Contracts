@@ -51,6 +51,15 @@ Beyond scoring, the contract stores lightweight profile metadata per business:
 - `set_profile` / `get_profile` – set or read the full `BusinessProfile`
 - `register_verified_business` – register and set a tier in one call
 - `get_business` / `count_businesses` / `count_active_businesses` – registry queries
+
+## Authorization model
+
+The contract has one immutable authority address. A deployment must call
+`initialize(authority)` once before using state-changing entrypoints. Every
+mutating method accepts that authority as its caller and verifies both address
+equality and `Address::require_auth()` before touching storage. Read-only
+methods remain permissionless. Initialization and authorization failures use
+stable contract errors, and authority replacement is intentionally unsupported.
 - `get_business_by_wallet` / `is_wallet_registered` – canonical-wallet lookup backed by a duplicate-safe index
 
 ### Registration integrity

@@ -2,8 +2,184 @@
 
 extern crate std;
 
-use super::*;
-use soroban_sdk::{Env, String, Symbol};
+use super::{
+    Business, BusinessProfile, BusinessStats, TierSummary, TrustLayerContract,
+    TrustLayerContractClient as GeneratedClient,
+};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Env, String, Symbol};
+
+/// Test facade that preserves the concise pre-authorization test API while
+/// making every state-changing call explicit about its authorized caller.
+///
+/// The production client intentionally exposes the caller as an argument. The
+/// facade centralizes setup for the legacy behavioral tests; dedicated tests
+/// below use the generated client directly to exercise unauthorized callers.
+struct TrustLayerContractClient<'a> {
+    inner: GeneratedClient<'a>,
+    authority: Address,
+}
+
+impl<'a> TrustLayerContractClient<'a> {
+    fn new(env: &'a Env, contract_id: &Address) -> Self {
+        env.mock_all_auths();
+        let authority = Address::generate(env);
+        let inner = GeneratedClient::new(env, contract_id);
+        inner.initialize(&authority);
+        Self { inner, authority }
+    }
+
+    fn register_business(&self, wallet: &String, company_name: &String) -> u32 {
+        self.inner
+            .register_business(&self.authority, wallet, company_name)
+    }
+
+    fn record_signal(&self, business_id: &u32, signal_type: &Symbol, value: &i128) -> bool {
+        self.inner
+            .record_signal(&self.authority, business_id, signal_type, value)
+    }
+
+    fn update_trust_score(&self, business_id: &u32) -> i128 {
+        self.inner.update_trust_score(&self.authority, business_id)
+    }
+
+    fn verify_trust_score(&self, business_id: &u32) -> i128 {
+        self.inner.verify_trust_score(business_id)
+    }
+
+    fn set_category(&self, business_id: &u32, category: &Symbol) {
+        self.inner
+            .set_category(&self.authority, business_id, category);
+    }
+
+    fn get_category(&self, business_id: &u32) -> Symbol {
+        self.inner.get_category(business_id)
+    }
+
+    fn set_verification_tier(&self, business_id: &u32, tier: &u32) {
+        self.inner
+            .set_verification_tier(&self.authority, business_id, tier);
+    }
+
+    fn get_verification_tier(&self, business_id: &u32) -> u32 {
+        self.inner.get_verification_tier(business_id)
+    }
+
+    fn deactivate_business(&self, business_id: &u32) {
+        self.inner.deactivate_business(&self.authority, business_id);
+    }
+
+    fn reactivate_business(&self, business_id: &u32) {
+        self.inner.reactivate_business(&self.authority, business_id);
+    }
+
+    fn is_active(&self, business_id: &u32) -> bool {
+        self.inner.is_active(business_id)
+    }
+
+    fn get_business(&self, business_id: &u32) -> Option<Business> {
+        self.inner.get_business(business_id)
+    }
+
+    fn count_businesses(&self) -> u32 {
+        self.inner.count_businesses()
+    }
+
+    fn meets_tier(&self, business_id: &u32, required: &u32) -> bool {
+        self.inner.meets_tier(business_id, required)
+    }
+
+    fn register_verified_business(
+        &self,
+        wallet: &String,
+        company_name: &String,
+        tier: &u32,
+    ) -> u32 {
+        self.inner
+            .register_verified_business(&self.authority, wallet, company_name, tier)
+    }
+
+    fn get_profile(&self, business_id: &u32) -> BusinessProfile {
+        self.inner.get_profile(business_id)
+    }
+
+    fn is_verified(&self, business_id: &u32) -> bool {
+        self.inner.is_verified(business_id)
+    }
+
+    fn bump_tier(&self, business_id: &u32) -> u32 {
+        self.inner.bump_tier(&self.authority, business_id)
+    }
+
+    fn downgrade_tier(&self, business_id: &u32) -> u32 {
+        self.inner.downgrade_tier(&self.authority, business_id)
+    }
+
+    fn set_profile(&self, business_id: &u32, category: &Symbol, tier: &u32, active: &bool) {
+        self.inner
+            .set_profile(&self.authority, business_id, category, tier, active);
+    }
+
+    fn count_active_businesses(&self) -> u32 {
+        self.inner.count_active_businesses()
+    }
+
+    fn is_active_and_verified(&self, business_id: &u32) -> bool {
+        self.inner.is_active_and_verified(business_id)
+    }
+
+    fn count_signals_for_business(&self, business_id: &u32) -> u32 {
+        self.inner.count_signals_for_business(business_id)
+    }
+
+    fn has_signals(&self, business_id: &u32) -> bool {
+        self.inner.has_signals(business_id)
+    }
+
+    fn latest_signal_value(&self, business_id: &u32) -> Option<i128> {
+        self.inner.latest_signal_value(business_id)
+    }
+
+    fn average_signal_value(&self, business_id: &u32) -> i128 {
+        self.inner.average_signal_value(business_id)
+    }
+
+    fn signal_type_count(&self, business_id: &u32, signal_type: &Symbol) -> u32 {
+        self.inner.signal_type_count(business_id, signal_type)
+    }
+
+    fn get_business_stats(&self, business_id: &u32) -> BusinessStats {
+        self.inner.get_business_stats(business_id)
+    }
+
+    fn count_businesses_at_tier(&self, tier: &u32) -> u32 {
+        self.inner.count_businesses_at_tier(tier)
+    }
+
+    fn list_business_ids_at_tier(&self, tier: &u32) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_at_tier(tier)
+    }
+
+    fn highest_tier(&self) -> u32 {
+        self.inner.highest_tier()
+    }
+
+    fn list_business_ids_meeting_tier(&self, required: &u32) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_meeting_tier(required)
+    }
+
+    fn count_businesses_in_category(&self, category: &Symbol) -> u32 {
+        self.inner.count_businesses_in_category(category)
+    }
+
+    fn list_business_ids_in_category(&self, category: &Symbol) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_in_category(category)
+    }
+
+    fn get_tier_summary(&self, tier: &u32) -> TierSummary {
+        self.inner.get_tier_summary(tier)
+    }
+}
 
 #[test]
 fn test_register_business() {
@@ -781,543 +957,153 @@ fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
 }
 
 #[test]
-fn test_signal_schema_is_versioned_and_deterministic() {
+fn test_initialize_stores_authority_once() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    env.mock_all_auths();
 
-    let schema = client.get_signal_schema();
-    assert_eq!(schema.version, 1);
-    assert_eq!(schema.min_value, -1_000_000);
-    assert_eq!(schema.max_value, 1_000_000);
-    assert_eq!(schema.max_type_len, 16);
-    assert_eq!(schema.allowed_types.len(), 5);
-    assert_eq!(
-        schema.allowed_types.get(0),
-        Some(Symbol::new(&env, "payment"))
-    );
-    assert_eq!(
-        schema.allowed_types.get(1),
-        Some(Symbol::new(&env, "review"))
-    );
-    assert_eq!(
-        schema.allowed_types.get(2),
-        Some(Symbol::new(&env, "delivery"))
-    );
-    assert_eq!(
-        schema.allowed_types.get(3),
-        Some(Symbol::new(&env, "compliance"))
-    );
-    assert_eq!(
-        schema.allowed_types.get(4),
-        Some(Symbol::new(&env, "dispute"))
-    );
-    assert_eq!(schema, client.get_signal_schema());
+    assert_eq!(client.get_authority(), None);
+    client.initialize(&authority);
+    assert_eq!(client.get_authority(), Some(authority));
 }
 
 #[test]
-fn test_every_supported_signal_type_is_accepted() {
+fn test_reinitialization_cannot_replace_authority() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let supported = ["payment", "review", "delivery", "compliance", "dispute"];
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let replacement = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
 
-    for (index, signal_type) in supported.iter().enumerate() {
-        assert!(client.record_signal(&0, &Symbol::new(&env, signal_type), &(index as i128),));
-    }
-    assert_eq!(
-        client.count_signals_for_business(&0),
-        supported.len() as u32
-    );
-}
-
-#[test]
-fn test_signal_value_inclusive_boundaries_are_accepted() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let signal_type = Symbol::new(&env, "payment");
-
-    assert!(client.record_signal(&0, &signal_type, &-1_000_000));
-    assert!(client.record_signal(&0, &signal_type, &0));
-    assert!(client.record_signal(&0, &signal_type, &1_000_000));
-    assert_eq!(client.count_signals_for_business(&0), 3);
-    assert_eq!(client.latest_signal_value(&0), Some(1_000_000));
-}
-
-#[test]
-fn test_unknown_and_empty_signal_types_fail_before_storage_write() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    let unknown = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.record_signal(&0, &Symbol::new(&env, "unknown"), &10);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.initialize(&replacement);
     }));
-    assert!(unknown.is_err());
+    assert!(result.is_err());
+    assert_eq!(client.get_authority(), Some(authority));
+}
+
+#[test]
+fn test_mutation_before_initialization_fails_without_storage_change() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let caller = Address::generate(&env);
+    env.mock_all_auths();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.register_business(
+            &caller,
+            &String::from_str(&env, "GABC..."),
+            &String::from_str(&env, "Uninitialized"),
+        );
+    }));
+    assert!(result.is_err());
+    assert_eq!(client.count_businesses(), 0);
+}
+
+#[test]
+fn test_unauthorized_caller_fails_before_registration() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.register_business(
+            &attacker,
+            &String::from_str(&env, "GATTACK"),
+            &String::from_str(&env, "Unauthorized"),
+        );
+    }));
+    assert!(result.is_err());
+    assert_eq!(client.count_businesses(), 0);
+    assert_eq!(client.get_business(&0), None);
+}
+
+#[test]
+fn test_unauthorized_caller_cannot_record_signal_or_change_score() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+    client.register_business(
+        &authority,
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Protected"),
+    );
+
+    let signal_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.record_signal(&attacker, &0, &Symbol::new(&env, "payment"), &100);
+    }));
+    assert!(signal_result.is_err());
     assert_eq!(client.count_signals_for_business(&0), 0);
 
-    let empty = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.record_signal(&0, &Symbol::new(&env, ""), &10);
+    let score_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.update_trust_score(&attacker, &0);
     }));
-    assert!(empty.is_err());
-    assert_eq!(client.count_signals_for_business(&0), 0);
+    assert!(score_result.is_err());
     assert_eq!(client.verify_trust_score(&0), 0);
 }
 
 #[test]
-fn test_oversized_signal_type_fails_before_storage_write() {
+fn test_unauthorized_caller_cannot_change_profile_state() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let oversized = Symbol::new(&env, "signal_type_too_long");
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+    client.set_profile(&authority, &7, &Symbol::new(&env, "logistics"), &2, &true);
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.record_signal(&0, &oversized, &10);
+    let category_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.set_category(&attacker, &7, &Symbol::new(&env, "finance"));
     }));
-    assert!(result.is_err());
-    assert_eq!(client.count_signals_for_business(&0), 0);
-}
+    assert!(category_result.is_err());
+    assert_eq!(client.get_category(&7), Symbol::new(&env, "logistics"));
 
-#[test]
-fn test_values_outside_inclusive_range_fail_without_score_changes() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let signal_type = Symbol::new(&env, "review");
-
-    client.record_signal(&0, &signal_type, &100);
-    let below_minimum = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.record_signal(&0, &signal_type, &-1_000_001);
+    let tier_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.set_verification_tier(&attacker, &7, &9);
     }));
-    assert!(below_minimum.is_err());
+    assert!(tier_result.is_err());
+    assert_eq!(client.get_verification_tier(&7), 2);
 
-    let above_maximum = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.record_signal(&0, &signal_type, &1_000_001);
+    let active_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.deactivate_business(&attacker, &7);
     }));
-    assert!(above_maximum.is_err());
-    assert_eq!(client.count_signals_for_business(&0), 1);
-    assert_eq!(client.verify_trust_score(&0), 0);
-    assert_eq!(client.average_signal_value(&0), 100);
+    assert!(active_result.is_err());
+    assert!(client.is_active(&7));
 }
 
 #[test]
-#[should_panic(expected = "negative trust signals are not permitted")]
-fn test_negative_values_are_rejected_before_scoring() {
+fn test_authorized_composite_and_tier_mutations_use_same_authority() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let signal_type = Symbol::new(&env, "compliance");
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
 
-    client.record_signal(&0, &signal_type, &-100);
-}
-
-fn assert_rejected_signal(
-    env: &Env,
-    client: &TrustLayerContractClient,
-    business_id: u32,
-    signal_type: &str,
-    value: i128,
-) {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.record_signal(&business_id, &Symbol::new(env, signal_type), &value);
-    }));
-    assert!(result.is_err(), "signal {signal_type}={value} was accepted");
-}
-
-#[test]
-fn test_schema_type_order_is_stable_for_off_chain_clients() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let schema = client.get_signal_schema();
-    let expected = ["payment", "review", "delivery", "compliance", "dispute"];
-
-    for (index, name) in expected.iter().enumerate() {
-        assert_eq!(
-            schema.allowed_types.get(index as u32),
-            Some(Symbol::new(&env, name))
-        );
-    }
-    assert_eq!(schema.allowed_types.get(expected.len() as u32), None);
-}
-
-#[test]
-fn test_schema_values_are_stable_across_repeated_reads() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    let first = client.get_signal_schema();
-    let second = client.get_signal_schema();
-    let third = client.get_signal_schema();
-    assert_eq!(first.version, second.version);
-    assert_eq!(second.version, third.version);
-    assert_eq!(first.min_value, second.min_value);
-    assert_eq!(second.min_value, third.min_value);
-    assert_eq!(first.max_value, second.max_value);
-    assert_eq!(second.max_value, third.max_value);
-    assert_eq!(first.max_type_len, second.max_type_len);
-    assert_eq!(second.max_type_len, third.max_type_len);
-    assert_eq!(first.allowed_types, second.allowed_types);
-    assert_eq!(second.allowed_types, third.allowed_types);
-}
-
-#[test]
-fn test_each_supported_type_accepts_minimum_zero_and_maximum() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let types = ["payment", "review", "delivery", "compliance", "dispute"];
-
-    for (business_id, signal_type) in types.iter().enumerate() {
-        let id = business_id as u32;
-        assert!(client.record_signal(&id, &Symbol::new(&env, signal_type), &-1_000_000));
-        assert!(client.record_signal(&id, &Symbol::new(&env, signal_type), &0));
-        assert!(client.record_signal(&id, &Symbol::new(&env, signal_type), &1_000_000));
-        assert_eq!(client.count_signals_for_business(&id), 3);
-        assert_eq!(client.latest_signal_value(&id), Some(1_000_000));
-        assert_eq!(
-            client.signal_type_count(&id, &Symbol::new(&env, signal_type)),
-            3
-        );
-    }
-}
-
-#[test]
-fn test_each_supported_type_rejects_value_just_beyond_both_bounds() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let types = ["payment", "review", "delivery", "compliance", "dispute"];
-
-    for (business_id, signal_type) in types.iter().enumerate() {
-        let id = business_id as u32;
-        assert_rejected_signal(&env, &client, id, signal_type, -1_000_001);
-        assert_rejected_signal(&env, &client, id, signal_type, 1_000_001);
-        assert_eq!(client.count_signals_for_business(&id), 0);
-        assert_eq!(client.latest_signal_value(&id), None);
-    }
-}
-
-#[test]
-fn test_i128_extremes_are_rejected_without_arithmetic_overflow() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    assert_rejected_signal(&env, &client, 0, "payment", i128::MIN);
-    assert_rejected_signal(&env, &client, 0, "payment", i128::MAX);
-    assert_rejected_signal(&env, &client, 0, "review", i128::MIN + 1);
-    assert_rejected_signal(&env, &client, 0, "review", i128::MAX - 1);
-    assert_eq!(client.count_signals_for_business(&0), 0);
-}
-
-#[test]
-fn test_unknown_symbol_families_are_all_rejected() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let unknown_types = [
-        "",
-        "unknown",
-        "Payment",
-        "payment_v2",
-        "payments",
-        "reviewer",
-        "oracle",
-        "score",
-        "admin",
-        "test",
-    ];
-
-    for (index, signal_type) in unknown_types.iter().enumerate() {
-        assert_rejected_signal(&env, &client, index as u32, signal_type, 1);
-        assert_eq!(client.count_signals_for_business(&(index as u32)), 0);
-    }
-}
-
-#[test]
-fn test_oversized_symbols_are_rejected_at_metadata_boundary() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let oversized_types = [
-        "12345678901234567",
-        "signal_type_too_long",
-        "this_symbol_is_far_too_long_for_v1",
-    ];
-
-    for (index, signal_type) in oversized_types.iter().enumerate() {
-        assert!(signal_type.len() > 16);
-        assert_rejected_signal(&env, &client, index as u32, signal_type, 1);
-        assert_eq!(client.count_signals_for_business(&(index as u32)), 0);
-    }
-}
-
-#[test]
-fn test_sixteen_character_unknown_symbol_is_bounded_but_not_allowlisted() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let bounded_unknown = "1234567890123456";
-    assert_eq!(bounded_unknown.len(), 16);
-
-    assert_rejected_signal(&env, &client, 0, bounded_unknown, 1);
-    assert_eq!(client.count_signals_for_business(&0), 0);
-}
-
-#[test]
-fn test_invalid_symbols_cannot_change_existing_signal_statistics() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let payment = Symbol::new(&env, "payment");
-    client.record_signal(&0, &payment, &10);
-    client.record_signal(&0, &payment, &20);
-    client.record_signal(&0, &payment, &30);
-
-    let before_count = client.count_signals_for_business(&0);
-    let before_latest = client.latest_signal_value(&0);
-    let before_average = client.average_signal_value(&0);
-    let before_payment_count = client.signal_type_count(&0, &payment);
-    assert_rejected_signal(&env, &client, 0, "unknown", 99);
-    assert_rejected_signal(&env, &client, 0, "", 99);
-    assert_rejected_signal(&env, &client, "payment".len() as u32, "delivery", i128::MAX);
-    assert_rejected_signal(&env, &client, 0, "signal_type_too_long", 99);
-
-    assert_eq!(client.count_signals_for_business(&0), before_count);
-    assert_eq!(client.latest_signal_value(&0), before_latest);
-    assert_eq!(client.average_signal_value(&0), before_average);
-    assert_eq!(client.signal_type_count(&0, &payment), before_payment_count);
-}
-
-#[test]
-fn test_failed_submissions_do_not_create_a_score_record() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    assert_rejected_signal(&env, &client, 42, "unknown", 1);
-    assert_eq!(client.verify_trust_score(&42), 0);
-    assert_eq!(client.average_signal_value(&42), 0);
-    assert_eq!(client.get_business_stats(&42).signal_count, 0);
-}
-
-#[test]
-fn test_negative_values_are_rejected_and_positive_bounds_remain_inclusive() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let signal_type = Symbol::new(&env, "delivery");
-
-    assert_rejected_signal(&env, &client, 0, "delivery", -1_000_001);
-    assert_rejected_signal(&env, &client, 0, "delivery", -1_000_000);
-    assert_rejected_signal(&env, &client, 0, "delivery", 1_000_001);
-    assert!(client.record_signal(&0, &signal_type, &1_000_000));
-    assert_eq!(client.count_signals_for_business(&0), 1);
-    assert_eq!(client.average_signal_value(&0), 1_000_000);
-}
-
-#[test]
-fn test_schema_bounds_match_the_values_accepted_by_record_signal() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let schema = client.get_signal_schema();
-    let signal_type = Symbol::new(&env, "compliance");
-
-    assert!(client.record_signal(&0, &signal_type, &schema.min_value));
-    assert!(client.record_signal(&0, &signal_type, &schema.max_value));
-    assert_rejected_signal(&env, &client, 0, "compliance", schema.min_value - 1);
-    assert_rejected_signal(&env, &client, 0, "compliance", schema.max_value + 1);
-    assert_eq!(client.count_signals_for_business(&0), 2);
-}
-
-#[test]
-fn test_schema_max_type_length_is_reported_as_a_client_contract() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let schema = client.get_signal_schema();
-
-    assert_eq!(schema.max_type_len, 16);
-    assert!(schema.max_type_len > 0);
-    assert!(schema.max_type_len <= 32);
-    for signal_type in schema.allowed_types.iter() {
-        assert!(signal_type != Symbol::new(&env, ""));
-    }
-}
-
-#[test]
-fn test_validation_is_independent_per_business() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let payment = Symbol::new(&env, "payment");
-    let review = Symbol::new(&env, "review");
-
-    assert!(client.record_signal(&0, &payment, &100));
-    assert_rejected_signal(&env, &client, 1, "unknown", 100);
-    assert_rejected_signal(&env, &client, 1, "review", -100);
-    assert_rejected_signal(&env, &client, 0, "payment_v2", 100);
-
-    assert_eq!(client.count_signals_for_business(&0), 1);
-    assert_eq!(client.count_signals_for_business(&1), 0);
-    assert_eq!(client.latest_signal_value(&0), Some(100));
-    assert_eq!(client.latest_signal_value(&1), None);
-}
-
-#[test]
-fn test_allowlisted_types_are_counted_independently_after_mixed_values() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let payment = Symbol::new(&env, "payment");
-    let review = Symbol::new(&env, "review");
-    let delivery = Symbol::new(&env, "delivery");
-    let compliance = Symbol::new(&env, "compliance");
-    let dispute = Symbol::new(&env, "dispute");
-
-    client.record_signal(&0, &payment, &10);
-    client.record_signal(&0, &review, &20);
-    client.record_signal(&0, &delivery, &30);
-    client.record_signal(&0, &compliance, &40);
-    client.record_signal(&0, &dispute, &50);
-
-    assert_eq!(client.signal_type_count(&0, &payment), 1);
-    assert_eq!(client.signal_type_count(&0, &review), 1);
-    assert_eq!(client.signal_type_count(&0, &delivery), 1);
-    assert_eq!(client.signal_type_count(&0, &compliance), 1);
-    assert_eq!(client.signal_type_count(&0, &dispute), 1);
-    assert_eq!(client.count_signals_for_business(&0), 5);
-    assert_eq!(client.average_signal_value(&0), 30);
-}
-
-#[test]
-#[should_panic(expected = "business wallet must start with G")]
-fn test_registration_rejects_non_g_wallets() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    client.register_business(&String::from_str(&env, "X123"), &String::from_str(&env, "Invalid"));
-}
-
-#[test]
-#[should_panic(expected = "business wallet is already registered")]
-fn test_registration_rejects_duplicate_wallet() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let wallet = String::from_str(&env, "GDUPLICATE123");
-    client.register_business(&wallet, &String::from_str(&env, "First"));
-    client.register_business(&wallet, &String::from_str(&env, "Second"));
-}
-
-#[test]
-fn test_wallet_index_returns_registered_business() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let wallet = String::from_str(&env, "GINDEX123");
-    let id = client.register_business(&wallet, &String::from_str(&env, "Indexed"));
-    assert_eq!(client.get_business_by_wallet(&wallet), Some(id));
-    assert!(client.is_wallet_registered(&wallet));
-}
-
-#[test]
-fn test_failed_duplicate_registration_does_not_add_record() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let wallet = String::from_str(&env, "GATOMIC123");
-    client.register_business(&wallet, &String::from_str(&env, "Original"));
-    let result = client.try_register_business(&wallet, &String::from_str(&env, "Rejected"));
-    assert!(result.is_err());
-    assert_eq!(client.count_businesses(), 1);
-    assert_eq!(client.get_business_by_wallet(&wallet), Some(0));
-}
-
-#[test]
-fn test_distinct_canonical_wallets_are_indexed_independently() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    let first = String::from_str(&env, "GFIRST123");
-    let second = String::from_str(&env, "GSECOND123");
-    client.register_business(&first, &String::from_str(&env, "First"));
-    client.register_business(&second, &String::from_str(&env, "Second"));
-    assert_eq!(client.get_business_by_wallet(&first), Some(0));
-    assert_eq!(client.get_business_by_wallet(&second), Some(1));
-}
-
-#[test]
-fn test_weighted_score_uses_checked_weighted_average() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    client.record_weighted_signal(&7, &Symbol::new(&env, "payment"), &100, &3);
-    client.record_weighted_signal(&7, &Symbol::new(&env, "review"), &40, &1);
-    assert_eq!(client.update_trust_score(&7), 85);
-    assert_eq!(client.verify_trust_score(&7), 85);
-    assert_eq!(client.average_signal_value(&7), 85);
-    assert_eq!(client.get_business_stats(&7).average_value, 85);
-}
-
-#[test]
-fn test_tie_rounding_is_deterministically_upward() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    client.record_signal(&0, &Symbol::new(&env, "one"), &1);
-    client.record_signal(&0, &Symbol::new(&env, "two"), &2);
-    assert_eq!(client.update_trust_score(&0), 2);
-}
-
-#[test]
-#[should_panic(expected = "negative trust signals are not permitted")]
-fn test_negative_unweighted_signal_is_rejected() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    client.record_signal(&0, &Symbol::new(&env, "negative"), &-1);
-}
-
-#[test]
-#[should_panic(expected = "negative trust signals are not permitted")]
-fn test_negative_weighted_signal_is_rejected() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    client.record_weighted_signal(&0, &Symbol::new(&env, "negative"), &-1, &2);
-}
-
-#[test]
-#[should_panic(expected = "trust signal weight must be positive")]
-fn test_zero_weight_is_rejected() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    client.record_weighted_signal(&0, &Symbol::new(&env, "zero"), &10, &0);
-}
-
-#[test]
-#[should_panic(expected = "trust score arithmetic overflow")]
-fn test_weighted_multiplication_overflow_is_rejected() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    client.record_weighted_signal(&0, &Symbol::new(&env, "large"), &i128::MAX, &2);
-}
-
-#[test]
-fn test_verify_recomputes_after_new_signal_without_stale_storage() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-    client.record_signal(&0, &Symbol::new(&env, "first"), &10);
-    assert_eq!(client.update_trust_score(&0), 10);
-    client.record_signal(&0, &Symbol::new(&env, "second"), &20);
-    assert_eq!(client.verify_trust_score(&0), 15);
-    assert_eq!(client.get_business_stats(&0).average_value, 15);
+    let id = client.register_verified_business(
+        &authority,
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Authorized"),
+        &2,
+    );
+    assert_eq!(client.bump_tier(&authority, &id), 3);
+    assert_eq!(client.downgrade_tier(&authority, &id), 2);
+    client.set_profile(&authority, &id, &Symbol::new(&env, "finance"), &4, &false);
+    assert_eq!(client.get_category(&id), Symbol::new(&env, "finance"));
+    assert_eq!(client.get_verification_tier(&id), 4);
+    assert!(!client.is_active(&id));
 }

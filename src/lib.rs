@@ -1,9 +1,20 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Env, Map, String,
-    Symbol, SymbolStr, TryFromVal, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Map,
+    String, Symbol, SymbolStr, TryFromVal, Vec,
 };
+
+const AUTHORITY_KEY: &str = "authority";
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum Error {
+    NotInitialized = 10,
+    AlreadyInitialized = 11,
+    Unauthorized = 12,
+}
 
 /// Stable validation failures for the versioned signal schema.
 #[contracterror]
@@ -106,6 +117,31 @@ pub struct TrustLayerContract;
 
 #[contractimpl]
 impl TrustLayerContract {
+    pub fn initialize(env: Env, authority: Address) {
+        let key = Symbol::new(&env, AUTHORITY_KEY);
+        if env.storage().persistent().has(&key) {
+            panic_with_error!(&env, Error::AlreadyInitialized);
+        }
+        authority.require_auth();
+        env.storage().persistent().set(&key, &authority);
+    }
+
+    pub fn get_authority(env: Env) -> Option<Address> {
+        env.storage().persistent().get(&Symbol::new(&env, AUTHORITY_KEY))
+    }
+
+    fn require_authority(env: &Env, caller: &Address) {
+        let authority: Address = env
+            .storage()
+            .persistent()
+            .get(&Symbol::new(env, AUTHORITY_KEY))
+            .unwrap_or_else(|| panic_with_error!(env, Error::NotInitialized));
+        if authority != *caller {
+            panic_with_error!(env, Error::Unauthorized);
+        }
+        caller.require_auth();
+    }
+
     fn supported_signal_types(env: &Env) -> Vec<Symbol> {
         let mut types = Vec::new(env);
         types.push_back(Symbol::new(env, "payment"));
@@ -306,7 +342,8 @@ impl TrustLayerContract {
     }
 
     /// Register a business with wallet and company name.
-    pub fn register_business(env: Env, wallet: String, company_name: String) -> u32 {
+    pub fn register_business(env: Env, caller: Address, wallet: String, company_name: String) -> u32 {
+        Self::require_authority(&env, &caller);
         Self::validate_wallet(&wallet);
         Self::validate_company_name(&company_name);
         let mut identity_index = Self::ensure_identity_index(&env);
@@ -334,7 +371,14 @@ impl TrustLayerContract {
     }
 
     /// Record a trust signal for a business.
-    pub fn record_signal(env: Env, business_id: u32, signal_type: Symbol, value: i128) -> bool {
+    pub fn record_signal(
+        env: Env,
+        caller: Address,
+        business_id: u32,
+        signal_type: Symbol,
+        value: i128,
+    ) -> bool {
+        Self::require_authority(&env, &caller);
         Self::validate_signal(&env, &signal_type, value);
         if value < 0 {
             panic!("negative trust signals are not permitted");
@@ -361,11 +405,13 @@ impl TrustLayerContract {
     /// Record a non-negative signal with a checked positive integer weight.
     pub fn record_weighted_signal(
         env: Env,
+        caller: Address,
         business_id: u32,
         signal_type: Symbol,
         value: i128,
         weight: i128,
     ) -> bool {
+        Self::require_authority(&env, &caller);
         if value < 0 {
             panic!("negative trust signals are not permitted");
         }
@@ -392,7 +438,8 @@ impl TrustLayerContract {
     }
 
     /// Update trust score for a business (computed from signals).
-    pub fn update_trust_score(env: Env, business_id: u32) -> i128 {
+    pub fn update_trust_score(env: Env, caller: Address, business_id: u32) -> i128 {
+        Self::require_authority(&env, &caller);
         let score = Self::compute_score(&env, business_id);
         let score_key = Symbol::new(&env, "score");
         let mut scores: Vec<ScoreRecord> = env
@@ -423,7 +470,8 @@ impl TrustLayerContract {
     }
 
     /// Set the business category for a business profile.
-    pub fn set_category(env: Env, business_id: u32, category: Symbol) {
+    pub fn set_category(env: Env, caller: Address, business_id: u32, category: Symbol) {
+        Self::require_authority(&env, &caller);
         let key = Symbol::new(&env, "category");
         let mut categories: Map<u32, Symbol> = env
             .storage()
@@ -448,7 +496,8 @@ impl TrustLayerContract {
     }
 
     /// Set the verification tier for a business.
-    pub fn set_verification_tier(env: Env, business_id: u32, tier: u32) {
+    pub fn set_verification_tier(env: Env, caller: Address, business_id: u32, tier: u32) {
+        Self::require_authority(&env, &caller);
         let key = Symbol::new(&env, "tier");
         let mut tiers: Map<u32, u32> = env
             .storage()
@@ -471,7 +520,8 @@ impl TrustLayerContract {
     }
 
     /// Deactivate a business, marking it inactive in the profile store.
-    pub fn deactivate_business(env: Env, business_id: u32) {
+    pub fn deactivate_business(env: Env, caller: Address, business_id: u32) {
+        Self::require_authority(&env, &caller);
         let key = Symbol::new(&env, "active");
         let mut active: Map<u32, bool> = env
             .storage()
@@ -483,7 +533,8 @@ impl TrustLayerContract {
     }
 
     /// Reactivate a business, marking it active in the profile store.
-    pub fn reactivate_business(env: Env, business_id: u32) {
+    pub fn reactivate_business(env: Env, caller: Address, business_id: u32) {
+        Self::require_authority(&env, &caller);
         let key = Symbol::new(&env, "active");
         let mut active: Map<u32, bool> = env
             .storage()
@@ -550,12 +601,14 @@ impl TrustLayerContract {
     /// Register a business and immediately set its verification tier.
     pub fn register_verified_business(
         env: Env,
+        caller: Address,
         wallet: String,
         company_name: String,
         tier: u32,
     ) -> u32 {
-        let id = Self::register_business(env.clone(), wallet, company_name);
-        Self::set_verification_tier(env, id, tier);
+        Self::require_authority(&env, &caller);
+        let id = Self::register_business(env.clone(), caller.clone(), wallet, company_name);
+        Self::set_verification_tier(env, caller, id, tier);
         id
     }
 
@@ -578,28 +631,33 @@ impl TrustLayerContract {
     }
 
     /// Increment a business's verification tier by one and return the new tier.
-    pub fn bump_tier(env: Env, business_id: u32) -> u32 {
+    pub fn bump_tier(env: Env, caller: Address, business_id: u32) -> u32 {
+        Self::require_authority(&env, &caller);
         let next = Self::get_verification_tier(env.clone(), business_id) + 1;
-        Self::set_verification_tier(env, business_id, next);
+        Self::set_verification_tier(env, caller, business_id, next);
         next
     }
 
     /// Decrease a business's verification tier by one, never below zero.
-    pub fn downgrade_tier(env: Env, business_id: u32) -> u32 {
+    pub fn downgrade_tier(env: Env, caller: Address, business_id: u32) -> u32 {
+        Self::require_authority(&env, &caller);
         let current = Self::get_verification_tier(env.clone(), business_id);
         let next = if current > 0 { current - 1 } else { 0 };
-        Self::set_verification_tier(env, business_id, next);
+        Self::set_verification_tier(env, caller, business_id, next);
         next
     }
 
     /// Set category, tier, and active status for a business in a single call.
-    pub fn set_profile(env: Env, business_id: u32, category: Symbol, tier: u32, active: bool) {
-        Self::set_category(env.clone(), business_id, category);
-        Self::set_verification_tier(env.clone(), business_id, tier);
+    pub fn set_profile(
+        env: Env, caller: Address, business_id: u32, category: Symbol, tier: u32, active: bool,
+    ) {
+        Self::require_authority(&env, &caller);
+        Self::set_category(env.clone(), caller.clone(), business_id, category);
+        Self::set_verification_tier(env.clone(), caller.clone(), business_id, tier);
         if active {
-            Self::reactivate_business(env, business_id);
+            Self::reactivate_business(env, caller, business_id);
         } else {
-            Self::deactivate_business(env, business_id);
+            Self::deactivate_business(env, caller, business_id);
         }
     }
 
