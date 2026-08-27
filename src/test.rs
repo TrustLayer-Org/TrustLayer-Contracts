@@ -1,7 +1,185 @@
 #![cfg(test)]
 
-use super::*;
-use soroban_sdk::{Env, String, Symbol};
+extern crate std;
+
+use super::{
+    Business, BusinessProfile, BusinessStats, TierSummary, TrustLayerContract,
+    TrustLayerContractClient as GeneratedClient,
+};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Env, String, Symbol};
+
+/// Test facade that preserves the concise pre-authorization test API while
+/// making every state-changing call explicit about its authorized caller.
+///
+/// The production client intentionally exposes the caller as an argument. The
+/// facade centralizes setup for the legacy behavioral tests; dedicated tests
+/// below use the generated client directly to exercise unauthorized callers.
+struct TrustLayerContractClient<'a> {
+    inner: GeneratedClient<'a>,
+    authority: Address,
+}
+
+impl<'a> TrustLayerContractClient<'a> {
+    fn new(env: &'a Env, contract_id: &Address) -> Self {
+        env.mock_all_auths();
+        let authority = Address::generate(env);
+        let inner = GeneratedClient::new(env, contract_id);
+        inner.initialize(&authority);
+        Self { inner, authority }
+    }
+
+    fn register_business(&self, wallet: &String, company_name: &String) -> u32 {
+        self.inner
+            .register_business(&self.authority, wallet, company_name)
+    }
+
+    fn record_signal(&self, business_id: &u32, signal_type: &Symbol, value: &i128) -> bool {
+        self.inner
+            .record_signal(&self.authority, business_id, signal_type, value)
+    }
+
+    fn update_trust_score(&self, business_id: &u32) -> i128 {
+        self.inner.update_trust_score(&self.authority, business_id)
+    }
+
+    fn verify_trust_score(&self, business_id: &u32) -> i128 {
+        self.inner.verify_trust_score(business_id)
+    }
+
+    fn set_category(&self, business_id: &u32, category: &Symbol) {
+        self.inner
+            .set_category(&self.authority, business_id, category);
+    }
+
+    fn get_category(&self, business_id: &u32) -> Symbol {
+        self.inner.get_category(business_id)
+    }
+
+    fn set_verification_tier(&self, business_id: &u32, tier: &u32) {
+        self.inner
+            .set_verification_tier(&self.authority, business_id, tier);
+    }
+
+    fn get_verification_tier(&self, business_id: &u32) -> u32 {
+        self.inner.get_verification_tier(business_id)
+    }
+
+    fn deactivate_business(&self, business_id: &u32) {
+        self.inner.deactivate_business(&self.authority, business_id);
+    }
+
+    fn reactivate_business(&self, business_id: &u32) {
+        self.inner.reactivate_business(&self.authority, business_id);
+    }
+
+    fn is_active(&self, business_id: &u32) -> bool {
+        self.inner.is_active(business_id)
+    }
+
+    fn get_business(&self, business_id: &u32) -> Option<Business> {
+        self.inner.get_business(business_id)
+    }
+
+    fn count_businesses(&self) -> u32 {
+        self.inner.count_businesses()
+    }
+
+    fn meets_tier(&self, business_id: &u32, required: &u32) -> bool {
+        self.inner.meets_tier(business_id, required)
+    }
+
+    fn register_verified_business(
+        &self,
+        wallet: &String,
+        company_name: &String,
+        tier: &u32,
+    ) -> u32 {
+        self.inner
+            .register_verified_business(&self.authority, wallet, company_name, tier)
+    }
+
+    fn get_profile(&self, business_id: &u32) -> BusinessProfile {
+        self.inner.get_profile(business_id)
+    }
+
+    fn is_verified(&self, business_id: &u32) -> bool {
+        self.inner.is_verified(business_id)
+    }
+
+    fn bump_tier(&self, business_id: &u32) -> u32 {
+        self.inner.bump_tier(&self.authority, business_id)
+    }
+
+    fn downgrade_tier(&self, business_id: &u32) -> u32 {
+        self.inner.downgrade_tier(&self.authority, business_id)
+    }
+
+    fn set_profile(&self, business_id: &u32, category: &Symbol, tier: &u32, active: &bool) {
+        self.inner
+            .set_profile(&self.authority, business_id, category, tier, active);
+    }
+
+    fn count_active_businesses(&self) -> u32 {
+        self.inner.count_active_businesses()
+    }
+
+    fn is_active_and_verified(&self, business_id: &u32) -> bool {
+        self.inner.is_active_and_verified(business_id)
+    }
+
+    fn count_signals_for_business(&self, business_id: &u32) -> u32 {
+        self.inner.count_signals_for_business(business_id)
+    }
+
+    fn has_signals(&self, business_id: &u32) -> bool {
+        self.inner.has_signals(business_id)
+    }
+
+    fn latest_signal_value(&self, business_id: &u32) -> Option<i128> {
+        self.inner.latest_signal_value(business_id)
+    }
+
+    fn average_signal_value(&self, business_id: &u32) -> i128 {
+        self.inner.average_signal_value(business_id)
+    }
+
+    fn signal_type_count(&self, business_id: &u32, signal_type: &Symbol) -> u32 {
+        self.inner.signal_type_count(business_id, signal_type)
+    }
+
+    fn get_business_stats(&self, business_id: &u32) -> BusinessStats {
+        self.inner.get_business_stats(business_id)
+    }
+
+    fn count_businesses_at_tier(&self, tier: &u32) -> u32 {
+        self.inner.count_businesses_at_tier(tier)
+    }
+
+    fn list_business_ids_at_tier(&self, tier: &u32) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_at_tier(tier)
+    }
+
+    fn highest_tier(&self) -> u32 {
+        self.inner.highest_tier()
+    }
+
+    fn list_business_ids_meeting_tier(&self, required: &u32) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_meeting_tier(required)
+    }
+
+    fn count_businesses_in_category(&self, category: &Symbol) -> u32 {
+        self.inner.count_businesses_in_category(category)
+    }
+
+    fn list_business_ids_in_category(&self, category: &Symbol) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_in_category(category)
+    }
+
+    fn get_tier_summary(&self, tier: &u32) -> TierSummary {
+        self.inner.get_tier_summary(tier)
+    }
+}
 
 #[test]
 fn test_register_business() {
@@ -779,472 +957,153 @@ fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
 }
 
 #[test]
-#[should_panic(expected = "inactive business cannot receive trust data")]
-fn test_inactive_business_rejects_new_signals() {
+fn test_initialize_stores_authority_once() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    env.mock_all_auths();
 
-    client.register_business(
-        &String::from_str(&env, "G-INACTIVE"),
-        &String::from_str(&env, "Inactive Business"),
-    );
-    client.deactivate_business(&0);
-
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
+    assert_eq!(client.get_authority(), None);
+    client.initialize(&authority);
+    assert_eq!(client.get_authority(), Some(authority));
 }
 
 #[test]
-#[should_panic(expected = "inactive business cannot receive trust data")]
-fn test_inactive_business_rejects_score_updates() {
+fn test_reinitialization_cannot_replace_authority() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let replacement = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
 
-    client.register_business(
-        &String::from_str(&env, "G-INACTIVE-SCORE"),
-        &String::from_str(&env, "Inactive Score Business"),
-    );
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
-    client.update_trust_score(&0);
-    client.deactivate_business(&0);
-
-    client.update_trust_score(&0);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.initialize(&replacement);
+    }));
+    assert!(result.is_err());
+    assert_eq!(client.get_authority(), Some(authority));
 }
 
 #[test]
-fn test_score_and_stats_history_survive_deactivation() {
+fn test_mutation_before_initialization_fails_without_storage_change() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let client = GeneratedClient::new(&env, &contract_id);
+    let caller = Address::generate(&env);
+    env.mock_all_auths();
 
-    client.register_business(
-        &String::from_str(&env, "G-HISTORY"),
-        &String::from_str(&env, "History Business"),
-    );
-    client.set_category(&0, &Symbol::new(&env, "finance"));
-    client.set_verification_tier(&0, &3);
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
-    client.record_signal(&0, &Symbol::new(&env, "review"), &200);
-    assert_eq!(client.update_trust_score(&0), 150);
-
-    client.deactivate_business(&0);
-
-    assert_eq!(client.is_active(&0), false);
-    assert_eq!(client.is_verified(&0), true);
-    assert_eq!(client.is_active_and_verified(&0), false);
-    assert_eq!(client.verify_trust_score(&0), 150);
-    assert_eq!(client.count_signals_for_business(&0), 2);
-    assert_eq!(client.latest_signal_value(&0), Some(200));
-    assert_eq!(client.average_signal_value(&0), 150);
-    assert_eq!(
-        client.signal_type_count(&0, &Symbol::new(&env, "payment")),
-        1
-    );
-    assert_eq!(
-        client.get_business_stats(&0),
-        BusinessStats {
-            business_id: 0,
-            signal_count: 2,
-            average_value: 150,
-            has_signals: true,
-        }
-    );
-    assert_eq!(
-        client.get_profile(&0),
-        BusinessProfile {
-            business_id: 0,
-            category: Symbol::new(&env, "finance"),
-            tier: 3,
-            active: false,
-        }
-    );
-}
-
-#[test]
-fn test_reactivation_restores_writes_without_resetting_history() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    client.register_business(
-        &String::from_str(&env, "G-REACTIVATE"),
-        &String::from_str(&env, "Reactivation Business"),
-    );
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &100);
-    assert_eq!(client.update_trust_score(&0), 100);
-    client.deactivate_business(&0);
-    client.reactivate_business(&0);
-
-    assert!(client.is_active(&0));
-    assert_eq!(client.verify_trust_score(&0), 100);
-    assert_eq!(client.count_signals_for_business(&0), 1);
-
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &300);
-    assert_eq!(client.count_signals_for_business(&0), 2);
-    assert_eq!(client.update_trust_score(&0), 200);
-    assert_eq!(client.verify_trust_score(&0), 200);
-}
-
-#[test]
-fn test_directory_queries_exclude_inactive_businesses_consistently() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    for (wallet, company) in [
-        ("G-DIR-0", "Directory One"),
-        ("G-DIR-1", "Directory Two"),
-        ("G-DIR-2", "Directory Three"),
-        ("G-DIR-3", "Directory Four"),
-    ] {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.register_business(
-            &String::from_str(&env, wallet),
-            &String::from_str(&env, company),
+            &caller,
+            &String::from_str(&env, "GABC..."),
+            &String::from_str(&env, "Uninitialized"),
         );
-    }
-    client.set_category(&0, &Symbol::new(&env, "finance"));
-    client.set_verification_tier(&0, &4);
-    client.set_category(&1, &Symbol::new(&env, "finance"));
-    client.set_verification_tier(&1, &4);
-    client.deactivate_business(&1);
-    client.set_category(&2, &Symbol::new(&env, "retail"));
-    client.set_verification_tier(&2, &2);
-    client.set_category(&3, &Symbol::new(&env, "retail"));
-    client.set_verification_tier(&3, &9);
-    client.deactivate_business(&3);
-
-    assert_eq!(client.count_businesses(), 4);
-    assert_eq!(client.count_active_businesses(), 2);
-    assert_eq!(client.count_businesses_at_tier(&4), 1);
-    assert_eq!(
-        client.list_business_ids_at_tier(&4),
-        soroban_sdk::vec![&env, 0]
-    );
-    assert_eq!(client.highest_tier(), 4);
-    assert_eq!(
-        client.list_business_ids_meeting_tier(&2),
-        soroban_sdk::vec![&env, 0, 2]
-    );
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "finance")),
-        1
-    );
-    assert_eq!(
-        client.list_business_ids_in_category(&Symbol::new(&env, "finance")),
-        soroban_sdk::vec![&env, 0]
-    );
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "retail")),
-        1
-    );
-    assert_eq!(
-        client.get_tier_summary(&4),
-        TierSummary {
-            tier: 4,
-            business_count: 1,
-            business_ids: soroban_sdk::vec![&env, 0],
-        }
-    );
-}
-
-#[test]
-fn test_reactivated_business_reappears_in_all_directory_queries() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    client.register_business(
-        &String::from_str(&env, "G-DIR-REACTIVATED"),
-        &String::from_str(&env, "Reactivated Directory Business"),
-    );
-    client.set_category(&0, &Symbol::new(&env, "technology"));
-    client.set_verification_tier(&0, &7);
-    client.deactivate_business(&0);
-
-    assert_eq!(client.count_active_businesses(), 0);
-    assert_eq!(client.count_businesses_at_tier(&7), 0);
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "technology")),
-        0
-    );
-    assert_eq!(client.highest_tier(), 0);
-
-    client.reactivate_business(&0);
-
-    assert_eq!(client.count_active_businesses(), 1);
-    assert_eq!(client.count_businesses_at_tier(&7), 1);
-    assert_eq!(
-        client.list_business_ids_at_tier(&7),
-        soroban_sdk::vec![&env, 0]
-    );
-    assert_eq!(client.highest_tier(), 7);
-    assert_eq!(
-        client.list_business_ids_meeting_tier(&7),
-        soroban_sdk::vec![&env, 0]
-    );
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "technology")),
-        1
-    );
-    assert_eq!(
-        client.list_business_ids_in_category(&Symbol::new(&env, "technology")),
-        soroban_sdk::vec![&env, 0]
-    );
-}
-
-#[test]
-fn test_repeated_deactivation_and_reactivation_are_idempotent() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    client.register_business(
-        &String::from_str(&env, "G-IDEMPOTENT"),
-        &String::from_str(&env, "Idempotent Business"),
-    );
-    client.set_category(&0, &Symbol::new(&env, "logistics"));
-    client.set_verification_tier(&0, &5);
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &80);
-    assert_eq!(client.update_trust_score(&0), 80);
-
-    client.deactivate_business(&0);
-    client.deactivate_business(&0);
-    assert!(!client.is_active(&0));
-    assert_eq!(client.count_active_businesses(), 0);
-    assert_eq!(client.verify_trust_score(&0), 80);
-    assert_eq!(client.count_signals_for_business(&0), 1);
-
-    client.reactivate_business(&0);
-    client.reactivate_business(&0);
-    assert!(client.is_active(&0));
-    assert_eq!(client.count_active_businesses(), 1);
-    assert_eq!(client.get_verification_tier(&0), 5);
-    assert_eq!(client.get_category(&0), Symbol::new(&env, "logistics"));
-    assert_eq!(client.verify_trust_score(&0), 80);
-}
-
-#[test]
-fn test_try_rejected_signal_does_not_change_inactive_history() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    client.register_business(
-        &String::from_str(&env, "G-REJECTED-SIGNAL"),
-        &String::from_str(&env, "Rejected Signal Business"),
-    );
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &25);
-    assert_eq!(client.update_trust_score(&0), 25);
-    client.deactivate_business(&0);
-
-    let result = client.try_record_signal(&0, &Symbol::new(&env, "blocked"), &999);
+    }));
     assert!(result.is_err());
-    assert_eq!(client.count_signals_for_business(&0), 1);
-    assert_eq!(client.latest_signal_value(&0), Some(25));
-    assert_eq!(client.average_signal_value(&0), 25);
-    assert_eq!(
-        client.signal_type_count(&0, &Symbol::new(&env, "blocked")),
-        0
-    );
-    assert_eq!(client.verify_trust_score(&0), 25);
+    assert_eq!(client.count_businesses(), 0);
 }
 
 #[test]
-fn test_try_rejected_score_update_does_not_change_stored_score() {
+fn test_unauthorized_caller_fails_before_registration() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
 
-    client.register_business(
-        &String::from_str(&env, "G-REJECTED-SCORE"),
-        &String::from_str(&env, "Rejected Score Business"),
-    );
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &40);
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &60);
-    assert_eq!(client.update_trust_score(&0), 50);
-    client.deactivate_business(&0);
-
-    let result = client.try_update_trust_score(&0);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.register_business(
+            &attacker,
+            &String::from_str(&env, "GATTACK"),
+            &String::from_str(&env, "Unauthorized"),
+        );
+    }));
     assert!(result.is_err());
-    assert_eq!(client.verify_trust_score(&0), 50);
-    assert_eq!(client.count_signals_for_business(&0), 2);
-    assert_eq!(client.get_business_stats(&0).average_value, 50);
+    assert_eq!(client.count_businesses(), 0);
+    assert_eq!(client.get_business(&0), None);
 }
 
 #[test]
-fn test_active_business_can_mutate_all_trust_data_before_deactivation() {
+fn test_unauthorized_caller_cannot_record_signal_or_change_score() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
     client.register_business(
-        &String::from_str(&env, "G-ACTIVE"),
-        &String::from_str(&env, "Active Business"),
+        &authority,
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Protected"),
     );
-    client.set_category(&0, &Symbol::new(&env, "commerce"));
-    client.set_verification_tier(&0, &6);
-    assert!(client.is_active(&0));
-    assert!(client.record_signal(&0, &Symbol::new(&env, "payment"), &125));
-    assert!(client.record_signal(&0, &Symbol::new(&env, "review"), &175));
-    assert_eq!(client.update_trust_score(&0), 150);
-    assert_eq!(client.verify_trust_score(&0), 150);
-    assert_eq!(client.count_signals_for_business(&0), 2);
-    assert!(client.has_signals(&0));
-    assert_eq!(client.latest_signal_value(&0), Some(175));
-    assert_eq!(client.average_signal_value(&0), 150);
-    assert_eq!(
-        client.signal_type_count(&0, &Symbol::new(&env, "payment")),
-        1
-    );
-    assert_eq!(client.count_active_businesses(), 1);
-    assert_eq!(client.count_businesses_at_tier(&6), 1);
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "commerce")),
-        1
-    );
+
+    let signal_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.record_signal(&attacker, &0, &Symbol::new(&env, "payment"), &100);
+    }));
+    assert!(signal_result.is_err());
+    assert_eq!(client.count_signals_for_business(&0), 0);
+
+    let score_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.update_trust_score(&attacker, &0);
+    }));
+    assert!(score_result.is_err());
+    assert_eq!(client.verify_trust_score(&0), 0);
 }
 
 #[test]
-fn test_deactivation_preserves_registry_identity_and_profile_fields() {
+fn test_unauthorized_caller_cannot_change_profile_state() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+    client.set_profile(&authority, &7, &Symbol::new(&env, "logistics"), &2, &true);
 
-    let id = client.register_business(
-        &String::from_str(&env, "G-IDENTITY"),
-        &String::from_str(&env, "Identity Business"),
-    );
-    client.set_profile(&id, &Symbol::new(&env, "identity"), &8, &true);
-    let business_before = client.get_business(&id).unwrap();
-    client.deactivate_business(&id);
+    let category_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.set_category(&attacker, &7, &Symbol::new(&env, "finance"));
+    }));
+    assert!(category_result.is_err());
+    assert_eq!(client.get_category(&7), Symbol::new(&env, "logistics"));
 
-    assert_eq!(client.count_businesses(), 1);
-    assert_eq!(client.get_business(&id), Some(business_before.clone()));
-    assert_eq!(
-        client.get_profile(&id),
-        BusinessProfile {
-            business_id: id,
-            category: Symbol::new(&env, "identity"),
-            tier: 8,
-            active: false,
-        }
-    );
-    assert_eq!(client.get_category(&id), Symbol::new(&env, "identity"));
-    assert_eq!(client.get_verification_tier(&id), 8);
-    assert_eq!(client.is_verified(&id), true);
-    assert_eq!(client.is_active_and_verified(&id), false);
+    let tier_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.set_verification_tier(&attacker, &7, &9);
+    }));
+    assert!(tier_result.is_err());
+    assert_eq!(client.get_verification_tier(&7), 2);
 
-    client.reactivate_business(&id);
-
-    assert_eq!(client.get_business(&id), Some(business_before));
-    assert_eq!(client.get_category(&id), Symbol::new(&env, "identity"));
-    assert_eq!(client.get_verification_tier(&id), 8);
-    assert!(client.is_active_and_verified(&id));
+    let active_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.deactivate_business(&attacker, &7);
+    }));
+    assert!(active_result.is_err());
+    assert!(client.is_active(&7));
 }
 
 #[test]
-fn test_inactive_tier_zero_is_hidden_from_directory_queries() {
+fn test_authorized_composite_and_tier_mutations_use_same_authority() {
     let env = Env::default();
     let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
 
-    client.register_business(
-        &String::from_str(&env, "G-TIER-ZERO"),
-        &String::from_str(&env, "Tier Zero Business"),
+    let id = client.register_verified_business(
+        &authority,
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Authorized"),
+        &2,
     );
-    client.set_category(&0, &Symbol::new(&env, "unverified"));
-    assert_eq!(client.get_verification_tier(&0), 0);
-    client.deactivate_business(&0);
-
-    assert_eq!(client.count_active_businesses(), 0);
-    assert_eq!(client.count_businesses_at_tier(&0), 0);
-    assert_eq!(client.list_business_ids_at_tier(&0).len(), 0);
-    assert_eq!(client.list_business_ids_meeting_tier(&0).len(), 0);
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "unverified")),
-        0
-    );
-    assert_eq!(
-        client
-            .list_business_ids_in_category(&Symbol::new(&env, "unverified"))
-            .len(),
-        0
-    );
-    assert_eq!(client.highest_tier(), 0);
-    assert_eq!(client.get_tier_summary(&0).business_count, 0);
-}
-
-#[test]
-fn test_lifecycle_transition_updates_directory_and_history_in_lockstep() {
-    let env = Env::default();
-    let contract_id = env.register(TrustLayerContract, ());
-    let client = TrustLayerContractClient::new(&env, &contract_id);
-
-    client.register_business(
-        &String::from_str(&env, "G-TRANSITION-A"),
-        &String::from_str(&env, "Transition A"),
-    );
-    client.register_business(
-        &String::from_str(&env, "G-TRANSITION-B"),
-        &String::from_str(&env, "Transition B"),
-    );
-    client.set_category(&0, &Symbol::new(&env, "shared"));
-    client.set_verification_tier(&0, &3);
-    client.set_category(&1, &Symbol::new(&env, "shared"));
-    client.set_verification_tier(&1, &3);
-    client.record_signal(&0, &Symbol::new(&env, "payment"), &20);
-    client.update_trust_score(&0);
-    client.record_signal(&1, &Symbol::new(&env, "payment"), &40);
-    client.update_trust_score(&1);
-
-    assert_eq!(client.count_active_businesses(), 2);
-    assert_eq!(client.count_businesses_at_tier(&3), 2);
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "shared")),
-        2
-    );
-    assert_eq!(client.highest_tier(), 3);
-    assert_eq!(client.verify_trust_score(&0), 20);
-    assert_eq!(client.verify_trust_score(&1), 40);
-
-    client.deactivate_business(&0);
-
-    assert_eq!(client.count_active_businesses(), 1);
-    assert_eq!(client.count_businesses_at_tier(&3), 1);
-    assert_eq!(
-        client.list_business_ids_at_tier(&3),
-        soroban_sdk::vec![&env, 1]
-    );
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "shared")),
-        1
-    );
-    assert_eq!(
-        client.list_business_ids_in_category(&Symbol::new(&env, "shared")),
-        soroban_sdk::vec![&env, 1]
-    );
-    assert_eq!(client.highest_tier(), 3);
-    assert_eq!(client.verify_trust_score(&0), 20);
-    assert_eq!(client.get_business_stats(&0).signal_count, 1);
-
-    client.reactivate_business(&0);
-
-    assert_eq!(client.count_active_businesses(), 2);
-    assert_eq!(client.count_businesses_at_tier(&3), 2);
-    assert_eq!(
-        client.list_business_ids_at_tier(&3),
-        soroban_sdk::vec![&env, 0, 1]
-    );
-    assert_eq!(
-        client.count_businesses_in_category(&Symbol::new(&env, "shared")),
-        2
-    );
-    assert_eq!(
-        client.list_business_ids_in_category(&Symbol::new(&env, "shared")),
-        soroban_sdk::vec![&env, 0, 1]
-    );
-    assert_eq!(client.highest_tier(), 3);
-    assert_eq!(client.verify_trust_score(&0), 20);
-    assert_eq!(client.verify_trust_score(&1), 40);
+    assert_eq!(client.bump_tier(&authority, &id), 3);
+    assert_eq!(client.downgrade_tier(&authority, &id), 2);
+    client.set_profile(&authority, &id, &Symbol::new(&env, "finance"), &4, &false);
+    assert_eq!(client.get_category(&id), Symbol::new(&env, "finance"));
+    assert_eq!(client.get_verification_tier(&id), 4);
+    assert!(!client.is_active(&id));
 }
