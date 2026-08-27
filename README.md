@@ -60,6 +60,13 @@ mutating method accepts that authority as its caller and verifies both address
 equality and `Address::require_auth()` before touching storage. Read-only
 methods remain permissionless. Initialization and authorization failures use
 stable contract errors, and authority replacement is intentionally unsupported.
+
+## Business lifecycle policy
+
+Inactive businesses retain readable history, but signal and score mutations
+are rejected before storage changes. Reactivation restores those mutations
+without erasing history. Directory tier and category queries include active
+businesses only, so counts and indexes follow the same lifecycle rule.
 - `get_business_by_wallet` / `is_wallet_registered` – canonical-wallet lookup backed by a duplicate-safe index
 
 ### Registration integrity

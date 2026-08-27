@@ -379,6 +379,7 @@ impl TrustLayerContract {
         value: i128,
     ) -> bool {
         Self::require_authority(&env, &caller);
+        assert!(Self::is_active(env.clone(), business_id), "inactive business cannot receive trust data");
         Self::validate_signal(&env, &signal_type, value);
         if value < 0 {
             panic!("negative trust signals are not permitted");
@@ -412,6 +413,7 @@ impl TrustLayerContract {
         weight: i128,
     ) -> bool {
         Self::require_authority(&env, &caller);
+        assert!(Self::is_active(env.clone(), business_id), "inactive business cannot receive trust data");
         if value < 0 {
             panic!("negative trust signals are not permitted");
         }
@@ -440,6 +442,7 @@ impl TrustLayerContract {
     /// Update trust score for a business (computed from signals).
     pub fn update_trust_score(env: Env, caller: Address, business_id: u32) -> i128 {
         Self::require_authority(&env, &caller);
+        assert!(Self::is_active(env.clone(), business_id), "inactive business cannot receive trust data");
         let score = Self::compute_score(&env, business_id);
         let score_key = Symbol::new(&env, "score");
         let mut scores: Vec<ScoreRecord> = env
@@ -763,7 +766,7 @@ impl TrustLayerContract {
         let total = Self::count_businesses(env.clone());
         let mut count: u32 = 0;
         for id in 0..total {
-            if Self::get_verification_tier(env.clone(), id) == tier {
+            if Self::is_active(env.clone(), id) && Self::get_verification_tier(env.clone(), id) == tier {
                 count += 1;
             }
         }
@@ -775,7 +778,7 @@ impl TrustLayerContract {
         let total = Self::count_businesses(env.clone());
         let mut ids: Vec<u32> = Vec::new(&env);
         for id in 0..total {
-            if Self::get_verification_tier(env.clone(), id) == tier {
+            if Self::is_active(env.clone(), id) && Self::get_verification_tier(env.clone(), id) == tier {
                 ids.push_back(id);
             }
         }
@@ -787,9 +790,11 @@ impl TrustLayerContract {
         let total = Self::count_businesses(env.clone());
         let mut highest: u32 = 0;
         for id in 0..total {
-            let tier = Self::get_verification_tier(env.clone(), id);
-            if tier > highest {
-                highest = tier;
+            if Self::is_active(env.clone(), id) {
+                let tier = Self::get_verification_tier(env.clone(), id);
+                if tier > highest {
+                    highest = tier;
+                }
             }
         }
         highest
@@ -800,7 +805,7 @@ impl TrustLayerContract {
         let total = Self::count_businesses(env.clone());
         let mut ids: Vec<u32> = Vec::new(&env);
         for id in 0..total {
-            if Self::meets_tier(env.clone(), id, required) {
+            if Self::is_active(env.clone(), id) && Self::meets_tier(env.clone(), id, required) {
                 ids.push_back(id);
             }
         }
@@ -812,7 +817,7 @@ impl TrustLayerContract {
         let total = Self::count_businesses(env.clone());
         let mut count: u32 = 0;
         for id in 0..total {
-            if Self::get_category(env.clone(), id) == category {
+            if Self::is_active(env.clone(), id) && Self::get_category(env.clone(), id) == category {
                 count += 1;
             }
         }
@@ -824,7 +829,7 @@ impl TrustLayerContract {
         let total = Self::count_businesses(env.clone());
         let mut ids: Vec<u32> = Vec::new(&env);
         for id in 0..total {
-            if Self::get_category(env.clone(), id) == category {
+            if Self::is_active(env.clone(), id) && Self::get_category(env.clone(), id) == category {
                 ids.push_back(id);
             }
         }
