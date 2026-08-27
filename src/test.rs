@@ -1,7 +1,185 @@
 #![cfg(test)]
 
-use super::*;
-use soroban_sdk::{Env, String, Symbol};
+extern crate std;
+
+use super::{
+    Business, BusinessProfile, BusinessStats, TierSummary, TrustLayerContract,
+    TrustLayerContractClient as GeneratedClient,
+};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Env, String, Symbol};
+
+/// Test facade that preserves the concise pre-authorization test API while
+/// making every state-changing call explicit about its authorized caller.
+///
+/// The production client intentionally exposes the caller as an argument. The
+/// facade centralizes setup for the legacy behavioral tests; dedicated tests
+/// below use the generated client directly to exercise unauthorized callers.
+struct TrustLayerContractClient<'a> {
+    inner: GeneratedClient<'a>,
+    authority: Address,
+}
+
+impl<'a> TrustLayerContractClient<'a> {
+    fn new(env: &'a Env, contract_id: &Address) -> Self {
+        env.mock_all_auths();
+        let authority = Address::generate(env);
+        let inner = GeneratedClient::new(env, contract_id);
+        inner.initialize(&authority);
+        Self { inner, authority }
+    }
+
+    fn register_business(&self, wallet: &String, company_name: &String) -> u32 {
+        self.inner
+            .register_business(&self.authority, wallet, company_name)
+    }
+
+    fn record_signal(&self, business_id: &u32, signal_type: &Symbol, value: &i128) -> bool {
+        self.inner
+            .record_signal(&self.authority, business_id, signal_type, value)
+    }
+
+    fn update_trust_score(&self, business_id: &u32) -> i128 {
+        self.inner.update_trust_score(&self.authority, business_id)
+    }
+
+    fn verify_trust_score(&self, business_id: &u32) -> i128 {
+        self.inner.verify_trust_score(business_id)
+    }
+
+    fn set_category(&self, business_id: &u32, category: &Symbol) {
+        self.inner
+            .set_category(&self.authority, business_id, category);
+    }
+
+    fn get_category(&self, business_id: &u32) -> Symbol {
+        self.inner.get_category(business_id)
+    }
+
+    fn set_verification_tier(&self, business_id: &u32, tier: &u32) {
+        self.inner
+            .set_verification_tier(&self.authority, business_id, tier);
+    }
+
+    fn get_verification_tier(&self, business_id: &u32) -> u32 {
+        self.inner.get_verification_tier(business_id)
+    }
+
+    fn deactivate_business(&self, business_id: &u32) {
+        self.inner.deactivate_business(&self.authority, business_id);
+    }
+
+    fn reactivate_business(&self, business_id: &u32) {
+        self.inner.reactivate_business(&self.authority, business_id);
+    }
+
+    fn is_active(&self, business_id: &u32) -> bool {
+        self.inner.is_active(business_id)
+    }
+
+    fn get_business(&self, business_id: &u32) -> Option<Business> {
+        self.inner.get_business(business_id)
+    }
+
+    fn count_businesses(&self) -> u32 {
+        self.inner.count_businesses()
+    }
+
+    fn meets_tier(&self, business_id: &u32, required: &u32) -> bool {
+        self.inner.meets_tier(business_id, required)
+    }
+
+    fn register_verified_business(
+        &self,
+        wallet: &String,
+        company_name: &String,
+        tier: &u32,
+    ) -> u32 {
+        self.inner
+            .register_verified_business(&self.authority, wallet, company_name, tier)
+    }
+
+    fn get_profile(&self, business_id: &u32) -> BusinessProfile {
+        self.inner.get_profile(business_id)
+    }
+
+    fn is_verified(&self, business_id: &u32) -> bool {
+        self.inner.is_verified(business_id)
+    }
+
+    fn bump_tier(&self, business_id: &u32) -> u32 {
+        self.inner.bump_tier(&self.authority, business_id)
+    }
+
+    fn downgrade_tier(&self, business_id: &u32) -> u32 {
+        self.inner.downgrade_tier(&self.authority, business_id)
+    }
+
+    fn set_profile(&self, business_id: &u32, category: &Symbol, tier: &u32, active: &bool) {
+        self.inner
+            .set_profile(&self.authority, business_id, category, tier, active);
+    }
+
+    fn count_active_businesses(&self) -> u32 {
+        self.inner.count_active_businesses()
+    }
+
+    fn is_active_and_verified(&self, business_id: &u32) -> bool {
+        self.inner.is_active_and_verified(business_id)
+    }
+
+    fn count_signals_for_business(&self, business_id: &u32) -> u32 {
+        self.inner.count_signals_for_business(business_id)
+    }
+
+    fn has_signals(&self, business_id: &u32) -> bool {
+        self.inner.has_signals(business_id)
+    }
+
+    fn latest_signal_value(&self, business_id: &u32) -> Option<i128> {
+        self.inner.latest_signal_value(business_id)
+    }
+
+    fn average_signal_value(&self, business_id: &u32) -> i128 {
+        self.inner.average_signal_value(business_id)
+    }
+
+    fn signal_type_count(&self, business_id: &u32, signal_type: &Symbol) -> u32 {
+        self.inner.signal_type_count(business_id, signal_type)
+    }
+
+    fn get_business_stats(&self, business_id: &u32) -> BusinessStats {
+        self.inner.get_business_stats(business_id)
+    }
+
+    fn count_businesses_at_tier(&self, tier: &u32) -> u32 {
+        self.inner.count_businesses_at_tier(tier)
+    }
+
+    fn list_business_ids_at_tier(&self, tier: &u32) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_at_tier(tier)
+    }
+
+    fn highest_tier(&self) -> u32 {
+        self.inner.highest_tier()
+    }
+
+    fn list_business_ids_meeting_tier(&self, required: &u32) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_meeting_tier(required)
+    }
+
+    fn count_businesses_in_category(&self, category: &Symbol) -> u32 {
+        self.inner.count_businesses_in_category(category)
+    }
+
+    fn list_business_ids_in_category(&self, category: &Symbol) -> soroban_sdk::Vec<u32> {
+        self.inner.list_business_ids_in_category(category)
+    }
+
+    fn get_tier_summary(&self, tier: &u32) -> TierSummary {
+        self.inner.get_tier_summary(tier)
+    }
+}
 
 #[test]
 fn test_register_business() {
@@ -776,4 +954,156 @@ fn test_get_tier_summary_empty_for_a_tier_with_no_businesses() {
     assert_eq!(summary.tier, 5);
     assert_eq!(summary.business_count, 0);
     assert_eq!(summary.business_ids.len(), 0);
+}
+
+#[test]
+fn test_initialize_stores_authority_once() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    env.mock_all_auths();
+
+    assert_eq!(client.get_authority(), None);
+    client.initialize(&authority);
+    assert_eq!(client.get_authority(), Some(authority));
+}
+
+#[test]
+fn test_reinitialization_cannot_replace_authority() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let replacement = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.initialize(&replacement);
+    }));
+    assert!(result.is_err());
+    assert_eq!(client.get_authority(), Some(authority));
+}
+
+#[test]
+fn test_mutation_before_initialization_fails_without_storage_change() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let caller = Address::generate(&env);
+    env.mock_all_auths();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.register_business(
+            &caller,
+            &String::from_str(&env, "GABC..."),
+            &String::from_str(&env, "Uninitialized"),
+        );
+    }));
+    assert!(result.is_err());
+    assert_eq!(client.count_businesses(), 0);
+}
+
+#[test]
+fn test_unauthorized_caller_fails_before_registration() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.register_business(
+            &attacker,
+            &String::from_str(&env, "GATTACK"),
+            &String::from_str(&env, "Unauthorized"),
+        );
+    }));
+    assert!(result.is_err());
+    assert_eq!(client.count_businesses(), 0);
+    assert_eq!(client.get_business(&0), None);
+}
+
+#[test]
+fn test_unauthorized_caller_cannot_record_signal_or_change_score() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+    client.register_business(
+        &authority,
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Protected"),
+    );
+
+    let signal_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.record_signal(&attacker, &0, &Symbol::new(&env, "payment"), &100);
+    }));
+    assert!(signal_result.is_err());
+    assert_eq!(client.count_signals_for_business(&0), 0);
+
+    let score_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.update_trust_score(&attacker, &0);
+    }));
+    assert!(score_result.is_err());
+    assert_eq!(client.verify_trust_score(&0), 0);
+}
+
+#[test]
+fn test_unauthorized_caller_cannot_change_profile_state() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+    client.set_profile(&authority, &7, &Symbol::new(&env, "logistics"), &2, &true);
+
+    let category_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.set_category(&attacker, &7, &Symbol::new(&env, "finance"));
+    }));
+    assert!(category_result.is_err());
+    assert_eq!(client.get_category(&7), Symbol::new(&env, "logistics"));
+
+    let tier_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.set_verification_tier(&attacker, &7, &9);
+    }));
+    assert!(tier_result.is_err());
+    assert_eq!(client.get_verification_tier(&7), 2);
+
+    let active_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.deactivate_business(&attacker, &7);
+    }));
+    assert!(active_result.is_err());
+    assert!(client.is_active(&7));
+}
+
+#[test]
+fn test_authorized_composite_and_tier_mutations_use_same_authority() {
+    let env = Env::default();
+    let contract_id = env.register(TrustLayerContract, ());
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+
+    let id = client.register_verified_business(
+        &authority,
+        &String::from_str(&env, "GABC..."),
+        &String::from_str(&env, "Authorized"),
+        &2,
+    );
+    assert_eq!(client.bump_tier(&authority, &id), 3);
+    assert_eq!(client.downgrade_tier(&authority, &id), 2);
+    client.set_profile(&authority, &id, &Symbol::new(&env, "finance"), &4, &false);
+    assert_eq!(client.get_category(&id), Symbol::new(&env, "finance"));
+    assert_eq!(client.get_verification_tier(&id), 4);
+    assert!(!client.is_active(&id));
 }

@@ -52,6 +52,43 @@ Beyond scoring, the contract stores lightweight profile metadata per business:
 - `register_verified_business` – register and set a tier in one call
 - `get_business` / `count_businesses` / `count_active_businesses` – registry queries
 
+## Authorization model
+
+The contract has one immutable authority address. A deployment must call
+`initialize(authority)` once before using any state-changing entrypoint. The
+authority signs initialization and is then stored in persistent contract
+storage. A second initialization attempt fails and cannot replace the stored
+address.
+
+Every mutating method takes the authority address as its first argument and
+performs both checks before touching mutable state:
+
+- the supplied address equals the stored authority;
+- the supplied address authenticates the current invocation with
+  `Address::require_auth()`.
+
+This applies to business registration, signal recording, score updates,
+category/tier/active-state updates, composite profile updates, and tier
+adjustments. `get_authority` and all other read-only methods remain
+permissionless so clients can inspect state without an administrative
+signature.
+
+Calls made before initialization return the stable `NotInitialized` contract
+error. Calls made with a different address return `Unauthorized`; these checks
+run before any storage mutation. Authentication failures are handled by the
+Soroban authorization layer and therefore do not expose implementation
+details. There is intentionally no authority replacement entrypoint in this
+version. A future migration must introduce an explicitly governed handover
+flow rather than weakening this invariant.
+
+Existing deployed instances must be initialized through the deployment
+process before their first state-changing call. This is a compatibility
+requirement because mutators now require an explicit caller argument; read
+methods and storage key layouts are unchanged. If a deployment cannot
+complete initialization, the safe rollback is to leave the instance paused
+for writes and deploy a version with a reviewed migration plan. Do not write
+an arbitrary authority into an existing instance.
+
 ## Business Signal Stats API
 
 Lightweight aggregates over a business's recorded signals, without recomputing a full trust score:
