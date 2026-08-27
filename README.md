@@ -51,6 +51,17 @@ Beyond scoring, the contract stores lightweight profile metadata per business:
 - `set_profile` / `get_profile` – set or read the full `BusinessProfile`
 - `register_verified_business` – register and set a tier in one call
 - `get_business` / `count_businesses` / `count_active_businesses` – registry queries
+- `get_business_by_wallet` / `is_wallet_registered` – canonical-wallet lookup backed by a duplicate-safe index
+
+### Registration integrity
+
+New registrations require a non-empty company name of at most 128 bytes and a
+canonical wallet identifier: an uppercase `G` followed by uppercase letters or
+digits, with a maximum length of 56 bytes. Wallet identity is unique across the
+registry, so registering the same wallet twice fails before the business list or
+index is changed. The lookup index is initialized lazily to keep businesses
+written by older contract versions readable; malformed legacy wallet strings
+are returned by id but are not used as new canonical identities.
 
 ## Business Signal Stats API
 
