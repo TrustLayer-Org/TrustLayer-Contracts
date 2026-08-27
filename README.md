@@ -52,6 +52,20 @@ Beyond scoring, the contract stores lightweight profile metadata per business:
 - `register_verified_business` – register and set a tier in one call
 - `get_business` / `count_businesses` / `count_active_businesses` – registry queries
 
+## Business lifecycle policy
+
+Deactivation is a read-only boundary for trust data. An inactive business's
+profile, recorded signals, computed score, and signal statistics remain
+queryable so history is not erased, but `record_signal` and
+`update_trust_score` reject the inactive business before writing. Reactivation
+is idempotent and restores the ability to record and score new signals.
+
+The directory policy is active-only: active counts, highest-tier results, and
+tier/category indexes omit inactive businesses. Each lifecycle transition is
+explicit and idempotent; this contract version has no administrator or wallet
+authorization model, so callers are expected to enforce access control at the
+application boundary until one is added to the contract API.
+
 ## Business Signal Stats API
 
 Lightweight aggregates over a business's recorded signals, without recomputing a full trust score:
