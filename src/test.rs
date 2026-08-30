@@ -1107,3 +1107,62 @@ fn test_authorized_composite_and_tier_mutations_use_same_authority() {
     assert_eq!(client.get_verification_tier(&id), 4);
     assert!(!client.is_active(&id));
 }
+
+#[test]
+fn test_pagination() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, TrustLayerContract);
+    let client = GeneratedClient::new(&env, &contract_id);
+    let authority = Address::generate(&env);
+    env.mock_all_auths();
+    client.initialize(&authority);
+    
+    // Add a large fixture
+    for i in 0..10 {
+        let wallet = String::from_str(&env, &std::format!("G100{}", i));
+        let name = String::from_str(&env, "Test");
+        let id = client.register_business(&authority, &wallet, &name);
+        client.set_verification_tier(&authority, &id, &(if i % 2 == 0 { 1 } else { 2 }));
+        client.set_category(&authority, &id, &Symbol::new(&env, "cat1"));
+        client.record_signal(&authority, &id, &Symbol::new(&env, "payment"), &(100 + i as i128));
+    }
+    
+    // invalid-limit
+    let err = client.try_get_businesses_paged(&None, &101).unwrap_err();
+    assert_eq!(err.unwrap(), super::QueryError::LimitExceeded);
+    
+    // one-page
+    let page1 = client.get_businesses_paged(&None, &10);
+    assert_eq!(page1.business_ids.len(), 10);
+    assert_eq!(page1.next_cursor, None);
+    
+    // multi-page
+    let page1 = client.get_businesses_paged(&None, &4);
+    assert_eq!(page1.business_ids.len(), 4);
+    assert_eq!(page1.next_cursor, Some(4));
+    
+    let page2 = client.get_businesses_paged(&Some(4), &4);
+    assert_eq!(page2.business_ids.len(), 4);
+    assert_eq!(page2.next_cursor, Some(8));
+    
+    let page3 = client.get_businesses_paged(&Some(8), &4);
+    assert_eq!(page3.business_ids.len(), 2);
+    assert_eq!(page3.next_cursor, None);
+    
+    // empty
+    let empty = client.get_businesses_paged(&Some(10), &4);
+    assert_eq!(empty.business_ids.len(), 0);
+    assert_eq!(empty.next_cursor, None);
+    
+    // invalid cursor
+    let err = client.try_get_businesses_paged(&Some(11), &4).unwrap_err();
+    assert_eq!(err.unwrap(), super::QueryError::InvalidCursor);
+    
+    // signals
+    let sig_page = client.get_signals_for_business_paged(&0, &None, &5);
+    assert_eq!(sig_page.signals.len(), 1);
+    
+    // filtered pages match count
+    let tier_page = client.get_businesses_at_tier_paged(&1, &None, &10);
+    assert_eq!(tier_page.business_ids.len(), 5);
+}
