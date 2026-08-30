@@ -9,6 +9,16 @@ const AUTHORITY_KEY: &str = "authority";
 pub const MAX_VERIFICATION_TIER: u32 = 10;
 const TIER_ADMIN: Symbol = soroban_sdk::symbol_short!("tieradmin");
 
+pub const MAX_PAGE_SIZE: u32 = 100;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum QueryError {
+    InvalidCursor = 20,
+    LimitExceeded = 21,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -139,6 +149,20 @@ pub struct BusinessStats {
     pub signal_count: u32,
     pub average_value: i128,
     pub has_signals: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BusinessPage {
+    pub business_ids: Vec<u32>,
+    pub next_cursor: Option<u32>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SignalPage {
+    pub signals: Vec<SignalRecord>,
+    pub next_cursor: Option<u32>,
 }
 
 #[contracttype]
@@ -773,6 +797,34 @@ impl TrustLayerContract {
         businesses.len()
     }
 
+    /// List all active businesses with pagination.
+    pub fn get_businesses_paged(
+        env: Env, cursor: Option<u32>, limit: u32,
+    ) -> Result<BusinessPage, QueryError> {
+        if limit > MAX_PAGE_SIZE {
+            return Err(QueryError::LimitExceeded);
+        }
+        let total = Self::count_businesses(env.clone());
+        let start_id = cursor.unwrap_or(0);
+        if start_id > total {
+            return Err(QueryError::InvalidCursor);
+        }
+        let mut ids: Vec<u32> = Vec::new(&env);
+        let mut next_cursor = None;
+        let mut collected = 0;
+        for id in start_id..total {
+            if collected == limit {
+                next_cursor = Some(id);
+                break;
+            }
+            if Self::is_active(env.clone(), id) {
+                ids.push_back(id);
+                collected += 1;
+            }
+        }
+        Ok(BusinessPage { business_ids: ids, next_cursor })
+    }
+
     /// Report whether a business meets a required verification tier.
     pub fn meets_tier(env: Env, business_id: u32, required: u32) -> bool {
         Self::get_verification_tier(env, business_id) >= required
@@ -868,6 +920,43 @@ impl TrustLayerContract {
         count
     }
 
+    /// List signals for a business with pagination.
+    pub fn get_signals_for_business_paged(
+        env: Env, business_id: u32, cursor: Option<u32>, limit: u32,
+    ) -> Result<SignalPage, QueryError> {
+        if limit > MAX_PAGE_SIZE {
+            return Err(QueryError::LimitExceeded);
+        }
+        let key = Symbol::new(&env, "signals");
+        let signals: Vec<SignalRecord> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let total = signals.len();
+        let start_id = cursor.unwrap_or(0);
+        if start_id > total {
+            return Err(QueryError::InvalidCursor);
+        }
+        
+        let mut results: Vec<SignalRecord> = Vec::new(&env);
+        let mut next_cursor = None;
+        let mut collected = 0;
+        
+        for i in start_id..total {
+            if collected == limit {
+                next_cursor = Some(i);
+                break;
+            }
+            let record = signals.get(i).unwrap();
+            if record.business_id == business_id {
+                results.push_back(record);
+                collected += 1;
+            }
+        }
+        Ok(SignalPage { signals: results, next_cursor })
+    }
+
     /// Report whether a business has at least one recorded signal.
     pub fn has_signals(env: Env, business_id: u32) -> bool {
         Self::count_signals_for_business(env, business_id) > 0
@@ -942,6 +1031,7 @@ impl TrustLayerContract {
     }
 
     /// List the ids of registered businesses whose verification tier equals `tier`.
+    #[deprecated(note = "use get_businesses_at_tier_paged instead")]
     pub fn list_business_ids_at_tier(env: Env, tier: u32) -> Vec<u32> {
         let total = Self::count_businesses(env.clone());
         let mut ids: Vec<u32> = Vec::new(&env);
@@ -951,6 +1041,34 @@ impl TrustLayerContract {
             }
         }
         ids
+    }
+
+    /// List businesses at a verification tier with pagination.
+    pub fn get_businesses_at_tier_paged(
+        env: Env, tier: u32, cursor: Option<u32>, limit: u32,
+    ) -> Result<BusinessPage, QueryError> {
+        if limit > MAX_PAGE_SIZE {
+            return Err(QueryError::LimitExceeded);
+        }
+        let total = Self::count_businesses(env.clone());
+        let start_id = cursor.unwrap_or(0);
+        if start_id > total {
+            return Err(QueryError::InvalidCursor);
+        }
+        let mut ids: Vec<u32> = Vec::new(&env);
+        let mut next_cursor = None;
+        let mut collected = 0;
+        for id in start_id..total {
+            if collected == limit {
+                next_cursor = Some(id);
+                break;
+            }
+            if Self::is_active(env.clone(), id) && Self::get_verification_tier(env.clone(), id) == tier {
+                ids.push_back(id);
+                collected += 1;
+            }
+        }
+        Ok(BusinessPage { business_ids: ids, next_cursor })
     }
 
     /// Highest verification tier among registered businesses; zero when none exist.
@@ -969,6 +1087,7 @@ impl TrustLayerContract {
     }
 
     /// List the ids of registered businesses meeting a required verification tier.
+    #[deprecated(note = "use get_businesses_meeting_tier_paged instead")]
     pub fn list_business_ids_meeting_tier(env: Env, required: u32) -> Vec<u32> {
         let total = Self::count_businesses(env.clone());
         let mut ids: Vec<u32> = Vec::new(&env);
@@ -978,6 +1097,34 @@ impl TrustLayerContract {
             }
         }
         ids
+    }
+
+    /// List businesses meeting a required verification tier with pagination.
+    pub fn get_businesses_meeting_tier_paged(
+        env: Env, required: u32, cursor: Option<u32>, limit: u32,
+    ) -> Result<BusinessPage, QueryError> {
+        if limit > MAX_PAGE_SIZE {
+            return Err(QueryError::LimitExceeded);
+        }
+        let total = Self::count_businesses(env.clone());
+        let start_id = cursor.unwrap_or(0);
+        if start_id > total {
+            return Err(QueryError::InvalidCursor);
+        }
+        let mut ids: Vec<u32> = Vec::new(&env);
+        let mut next_cursor = None;
+        let mut collected = 0;
+        for id in start_id..total {
+            if collected == limit {
+                next_cursor = Some(id);
+                break;
+            }
+            if Self::is_active(env.clone(), id) && Self::meets_tier(env.clone(), id, required) {
+                ids.push_back(id);
+                collected += 1;
+            }
+        }
+        Ok(BusinessPage { business_ids: ids, next_cursor })
     }
 
     /// Count registered businesses assigned to a given category.
@@ -993,6 +1140,7 @@ impl TrustLayerContract {
     }
 
     /// List the ids of registered businesses assigned to a given category.
+    #[deprecated(note = "use get_businesses_in_category_paged instead")]
     pub fn list_business_ids_in_category(env: Env, category: Symbol) -> Vec<u32> {
         let total = Self::count_businesses(env.clone());
         let mut ids: Vec<u32> = Vec::new(&env);
@@ -1002,6 +1150,34 @@ impl TrustLayerContract {
             }
         }
         ids
+    }
+
+    /// List businesses in a given category with pagination.
+    pub fn get_businesses_in_category_paged(
+        env: Env, category: Symbol, cursor: Option<u32>, limit: u32,
+    ) -> Result<BusinessPage, QueryError> {
+        if limit > MAX_PAGE_SIZE {
+            return Err(QueryError::LimitExceeded);
+        }
+        let total = Self::count_businesses(env.clone());
+        let start_id = cursor.unwrap_or(0);
+        if start_id > total {
+            return Err(QueryError::InvalidCursor);
+        }
+        let mut ids: Vec<u32> = Vec::new(&env);
+        let mut next_cursor = None;
+        let mut collected = 0;
+        for id in start_id..total {
+            if collected == limit {
+                next_cursor = Some(id);
+                break;
+            }
+            if Self::is_active(env.clone(), id) && Self::get_category(env.clone(), id) == category {
+                ids.push_back(id);
+                collected += 1;
+            }
+        }
+        Ok(BusinessPage { business_ids: ids, next_cursor })
     }
 
     /// Aggregate business count and ids for a given verification tier.
